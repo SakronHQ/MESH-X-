@@ -15,8 +15,8 @@
 |---|---|---|---|
 | **Phase 0** | **Discovery, Architecture & Specifications** | **APPROVED** | 2026-10-12 |
 | **Phase 1** | **Hardware Radio Prototype (SX1278 SPI Ping-Pong)** | **FIRMWARE READY (Awaiting Hardware Bench Run)** | 2026-10-12 |
-| **Phase 2** | **ESP32 BLE GATT Server & Transport Layer** | **IN PROGRESS (Firmware Built & Verified)** | — |
-| **Phase 3** | Flutter App Foundation, BLE Manager & UI System | QUEUED | — |
+| **Phase 2** | **ESP32 BLE GATT Server & Transport Layer** | **FIRMWARE VERIFIED** | 2026-10-12 |
+| **Phase 3** | **Flutter App Foundation, BLE Manager & UI System** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 4** | Direct Messaging MVP (Phone A ↔ LoRa ↔ Phone B) | QUEUED | — |
 | **Phase 5** | Multi-Hop Mesh Routing & Store-and-Forward | QUEUED | — |
 | **Phase 6** | End-to-End Cryptography & Authenticated Pairing | QUEUED | — |
@@ -57,8 +57,21 @@
 - [x] Add command validation, CRC checking, ACK responses (`EVT_TX_STATUS`), `CMD_PING` / `EVT_PONG`, and error codes.
 - [x] Implement automatic advertising recovery on mobile disconnection.
 - [x] Create standalone Phase 2 test sketch [mesh_x_firmware/test/ble_transport_test/ble_transport_test.ino](mesh_x_firmware/test/ble_transport_test/ble_transport_test.ino).
-- [x] Compile and verify with `arduino-cli` (Exit code: 0, 83% flash, 12% RAM).
 - [ ] Connect ESP32 to USB, upload sketch, and test BLE connection via mobile phone (e.g. nRF Connect or LightBlue).
+
+---
+
+## 3.3 Phase 3 Deliverables & Checklist
+- [x] Initialize Flutter mobile application with Riverpod state architecture in `mesh_x_app/`.
+- [x] Configure Android Bluetooth permissions in `AndroidManifest.xml` (Scan, Connect, Fine/Coarse Location).
+- [x] Build Hallmark modern dark theme system (`AppColors`, `AppTheme`) with electric cyan accents and 44x44px touch targets.
+- [x] Implement robust `BleRepository` wrapping `flutter_blue_plus` with MTU 256 negotiation, binary framing, and CRC-16-CCITT validation.
+- [x] Build `BleController` using Riverpod 3 `NotifierProvider` managing complete connection lifecycle and auto-reconnect backoff.
+- [x] Build `DeviceScannerScreen` with live RSSI signal indicators, permission handling, and node discovery.
+- [x] Build `DeviceDashboardScreen` with live telemetry gauges (RSSI, SNR, Uptime, Queue depth) and BLE Ping command.
+- [x] Build `ChatPlaceholderScreen` and bottom navigation shell.
+- [x] Run `flutter analyze` (Passed with 0 errors, 0 warnings).
+- [x] Run unit test suite `dart test test/unit_test.dart` (Passed 4/4 tests).
 
 ---
 

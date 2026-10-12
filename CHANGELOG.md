@@ -4,6 +4,17 @@ All notable changes to the MESH-X project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0-phase3] - 2026-10-12
+### Added
+- Initialized Flutter mobile application architecture in `mesh_x_app/` with Riverpod 3 (`NotifierProvider`).
+- Added Hallmark modern dark theme design system (`AppColors`, `AppTheme`) with electric cyan accents and 44x44px touch targets.
+- Created `BleRepository` with MTU 256 negotiation, binary framing, and CRC-16-CCITT packet validation.
+- Built `BleController` for reactive connection state management, scanning, and automatic reconnection.
+- Built `DeviceScannerScreen` with live RSSI signal indicators and node discovery.
+- Built `DeviceDashboardScreen` with hardware telemetry monitoring (RSSI, SNR, Uptime) and BLE link Ping.
+- Configured Android BLE permissions in `AndroidManifest.xml`.
+- Verified clean static analysis (`flutter analyze` - 0 issues) and passing unit test suite (`dart test` - 4/4 passed).
+
 ## [0.3.0-phase2] - 2026-10-12
 ### Added
 - Created `mesh_x_firmware/src/mesh_x_protocol.h` defining 128-bit custom MESH-X GATT UUIDs, binary frame header, and CRC-16-CCITT algorithm.
