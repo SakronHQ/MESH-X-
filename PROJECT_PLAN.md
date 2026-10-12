@@ -17,7 +17,7 @@
 | **Phase 1** | **Hardware Radio Prototype (SX1278 SPI Ping-Pong)** | **FIRMWARE READY (Awaiting Hardware Bench Run)** | 2026-10-12 |
 | **Phase 2** | **ESP32 BLE GATT Server & Transport Layer** | **FIRMWARE VERIFIED** | 2026-10-12 |
 | **Phase 3** | **Flutter App Foundation, BLE Manager & UI System** | **COMPLETED & VERIFIED** | 2026-10-12 |
-| **Phase 4** | Direct Messaging MVP (Phone A ↔ LoRa ↔ Phone B) | QUEUED | — |
+| **Phase 4** | **Direct Messaging MVP (Phone A ↔ LoRa ↔ Phone B)** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 5** | Multi-Hop Mesh Routing & Store-and-Forward | QUEUED | — |
 | **Phase 6** | End-to-End Cryptography & Authenticated Pairing | QUEUED | — |
 | **Phase 7** | Advanced Features (SOS, Telemetry, Diagnostics) | QUEUED | — |
@@ -72,6 +72,18 @@
 - [x] Build `ChatPlaceholderScreen` and bottom navigation shell.
 - [x] Run `flutter analyze` (Passed with 0 errors, 0 warnings).
 - [x] Run unit test suite `dart test test/unit_test.dart` (Passed 4/4 tests).
+
+---
+
+## 3.4 Phase 4 Deliverables & Checklist
+- [x] Integrate SQLite database (`sqflite`) with `conversations` and `messages` tables matching specification.
+- [x] Implement domain models `MessageModel` and `ConversationModel` with delivery statuses (`QUEUED`, `TRANSMITTED`, `DELIVERED`, `FAILED`).
+- [x] Build `ChatRepository` managing message persistence, BLE command packaging, and asynchronous notification event handling.
+- [x] Build `ConversationListScreen` with broadcast hub and peer conversation creation.
+- [x] Build `ChatConversationScreen` with real message bubbles, timestamps, delivery state ticks, retry action, and character limit indicator (180 chars).
+- [x] Build integrated Node firmware [mesh_x_firmware/main/main.ino](mesh_x_firmware/main/main.ino) combining BLE GATT Server + SX1278 LoRa Radio + Over-the-air Auto ACK logic.
+- [x] Compile firmware with `arduino-cli` (Passed with exit code 0).
+- [x] Pass `flutter analyze` (0 issues) and `dart test` (6/6 tests passed).
 
 ---
 

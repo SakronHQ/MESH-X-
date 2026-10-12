@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/theme/app_colors.dart';
-import '../features/chat/presentation/chat_placeholder_screen.dart';
+import '../features/chat/presentation/conversation_list_screen.dart';
 import '../features/device/presentation/device_scanner_screen.dart';
 
 class HomeNavigationScreen extends StatefulWidget {
@@ -11,10 +11,10 @@ class HomeNavigationScreen extends StatefulWidget {
 }
 
 class _HomeNavigationScreenState extends State<HomeNavigationScreen> {
-  int _currentIndex = 1; // Default to Hardware tab on first launch
+  int _currentIndex = 0; // Default to Messages tab
 
   final List<Widget> _screens = const [
-    ChatPlaceholderScreen(),
+    ConversationListScreen(),
     DeviceScannerScreen(),
   ];
 

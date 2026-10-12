@@ -4,6 +4,8 @@ import 'package:mesh_x_app/core/constants/ble_constants.dart';
 import 'package:mesh_x_app/core/utils/crc16.dart';
 import 'package:mesh_x_app/features/device/domain/connection_state.dart';
 import 'package:mesh_x_app/features/device/domain/device_info_model.dart';
+import 'package:mesh_x_app/features/chat/domain/message_model.dart';
+import 'package:mesh_x_app/features/chat/domain/conversation_model.dart';
 
 void main() {
   group('MESH-X Core Protocol & Domain Unit Tests', () {
@@ -50,6 +52,51 @@ void main() {
       expect(BleConnectionStatus.connected.label, equals('Connected'));
       expect(BleConnectionStatus.disconnected.label, equals('Disconnected'));
       expect(BleConnectionStatus.scanning.label, equals('Scanning for nodes...'));
+    });
+
+    test('MessageModel serialization and status transitions behave correctly', () {
+      const msg = MessageModel(
+        id: 'msg-1234',
+        packetId: 998877,
+        conversationId: '0xA1B2C3D4',
+        senderNodeId: 0x11111111,
+        recipientNodeId: 0x22222222,
+        textContent: 'Hello over LoRa mesh!',
+        deliveryStatus: MessageDeliveryStatus.queued,
+        isIncoming: false,
+        createdAt: 1700000000,
+      );
+
+      final map = msg.toMap();
+      expect(map['delivery_status'], equals('QUEUED'));
+      expect(map['is_incoming'], equals(0));
+
+      final restored = MessageModel.fromMap(map);
+      expect(restored.id, equals('msg-1234'));
+      expect(restored.deliveryStatus, equals(MessageDeliveryStatus.queued));
+
+      final delivered = restored.copyWith(deliveryStatus: MessageDeliveryStatus.delivered);
+      expect(delivered.deliveryStatus, equals(MessageDeliveryStatus.delivered));
+    });
+
+    test('ConversationModel formatted peer hex handles broadcast properly', () {
+      const broadcastConv = ConversationModel(
+        id: 'broadcast',
+        title: 'Public Mesh Broadcast',
+        peerNodeId: 0xFFFFFFFF,
+        createdAt: 1700000000,
+        updatedAt: 1700000000,
+      );
+      expect(broadcastConv.formattedPeerHex, equals('BROADCAST'));
+
+      const directConv = ConversationModel(
+        id: '0x1A2B3C4D',
+        title: 'Node 0x1A2B3C4D',
+        peerNodeId: 0x1A2B3C4D,
+        createdAt: 1700000000,
+        updatedAt: 1700000000,
+      );
+      expect(directConv.formattedPeerHex, equals('0x1A2B3C4D'));
     });
   });
 }

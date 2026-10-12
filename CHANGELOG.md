@@ -4,6 +4,17 @@ All notable changes to the MESH-X project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0-phase4] - 2026-10-12
+### Added
+- Integrated local SQLite database (`sqflite`) for offline-first message and conversation storage.
+- Implemented `MessageModel` and `ConversationModel` with strict delivery lifecycle (`QUEUED`, `TRANSMITTED`, `DELIVERED`, `FAILED`).
+- Created `ChatRepository` managing SQLite persistence, BLE command packing, and asynchronous event notifications.
+- Built `ConversationListScreen` with broadcast hub and direct peer conversation creator.
+- Built `ChatConversationScreen` with message bubbles, timestamps, delivery state ticks, retry action, and 180-character limit counter.
+- Implemented integrated ESP32 firmware bridge `mesh_x_firmware/main/main.ino` combining BLE GATT Server with SX1278 LoRa transceiver and over-the-air auto-ACK replies.
+- Compiled firmware with `arduino-cli` (Exit code: 0).
+- Passed `flutter analyze` (0 issues) and `dart test` (6/6 tests passed).
+
 ## [0.4.0-phase3] - 2026-10-12
 ### Added
 - Initialized Flutter mobile application architecture in `mesh_x_app/` with Riverpod 3 (`NotifierProvider`).
