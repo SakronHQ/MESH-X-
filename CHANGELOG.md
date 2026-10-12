@@ -4,6 +4,15 @@ All notable changes to the MESH-X project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-10-12
+### Added
+- Completed Phase 8 Release Engineering, Airtime Audit & Verification.
+- Developed Semtech SX1278 Time-on-Air (ToA) calculator (`tools/airtime_calculator.py`).
+- Completed formal ETSI 1.0% ISM Duty Cycle Compliance Audit (`docs/AIRTIME_AUDIT.md`).
+- Authored 6-stage Field Testing & Deployment Protocol (`docs/FIELD_TEST_GUIDE.md`) with electrical safety rules and RSSI/SNR reference scales.
+- Authored full academic-grade Project Defense & Submission Report (`docs/PROJECT_REPORT.md`) with complete system architecture and Bill of Materials ($8/node).
+- All 9 project phases (Phases 0 through 8) fully implemented, documented, compiled, and verified.
+
 ## [0.8.0-phase7] - 2026-10-12
 ### Added
 - Integrated `geolocator` for satellite GPS location acquisition in offline distress beacons.

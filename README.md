@@ -36,7 +36,12 @@ The system connects a mobile phone running a custom **Flutter** application to a
 MESH-X/
 ├── mesh_x_app/           # Flutter mobile application (Android & iOS)
 ├── mesh_x_firmware/      # C/C++ firmware for ESP32 DevKit V1 + SX1278
+├── tools/                # RF airtime and compliance calculation scripts
+│   └── airtime_calculator.py
 ├── docs/                 # Engineering specifications and protocol docs
+│   ├── PROJECT_REPORT.md     # Academic-grade defense report & BoM
+│   ├── FIELD_TEST_GUIDE.md   # 6-stage field deployment protocol
+│   ├── AIRTIME_AUDIT.md      # Semtech ToA & 1% duty cycle compliance audit
 │   ├── SYSTEM_ARCHITECTURE.md
 │   ├── BLE_PROTOCOL.md
 │   ├── RADIO_PROTOCOL.md
@@ -45,8 +50,8 @@ MESH-X/
 │   ├── HARDWARE_WIRING.md
 │   ├── TEST_PLAN.md
 │   └── IMPLEMENTATION_ROADMAP.md
-├── PROJECT_PLAN.md       # Real-time project tracking and roadmap status
-├── CHANGELOG.md          # Version history and phase transitions
+├── PROJECT_PLAN.md       # Real-time project tracking (100% Completed)
+├── CHANGELOG.md          # Release history (v1.0.0)
 └── README.md             # This document
 ```
 
