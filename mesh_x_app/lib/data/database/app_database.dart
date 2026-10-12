@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static Database? _instance;
   static const String _dbName = 'mesh_x_local.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   static Future<Database> get instance async {
     if (_instance != null) return _instance!;
@@ -54,6 +54,17 @@ class AppDatabase {
           );
         ''');
 
+        await db.execute('''
+          CREATE TABLE nodes (
+            node_id INTEGER PRIMARY KEY,
+            alias TEXT,
+            hop_distance INTEGER DEFAULT 1,
+            last_rssi INTEGER,
+            last_snr REAL,
+            last_seen_at INTEGER NOT NULL
+          );
+        ''');
+
         await db.execute('CREATE INDEX idx_messages_conv ON messages(conversation_id);');
         await db.execute('CREATE INDEX idx_messages_packet_id ON messages(packet_id);');
 
@@ -70,6 +81,20 @@ class AppDatabase {
           'created_at': now,
           'updated_at': now,
         });
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS nodes (
+              node_id INTEGER PRIMARY KEY,
+              alias TEXT,
+              hop_distance INTEGER DEFAULT 1,
+              last_rssi INTEGER,
+              last_snr REAL,
+              last_seen_at INTEGER NOT NULL
+            );
+          ''');
+        }
       },
     );
   }

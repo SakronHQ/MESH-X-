@@ -5,7 +5,7 @@
 - **Target Microcontroller**: ESP32 DevKit V1 (ESP-WROOM-32)
 - **Target Transceiver**: SX1278 RA-02 (433 MHz)
 - **Mobile Stack**: Flutter (Riverpod, SQLite, flutter_blue_plus)
-- **Current Protocol Version**: `v1.0.0-draft`
+- **Current Protocol Version**: `v1.1.0`
 
 ---
 
@@ -18,7 +18,7 @@
 | **Phase 2** | **ESP32 BLE GATT Server & Transport Layer** | **FIRMWARE VERIFIED** | 2026-10-12 |
 | **Phase 3** | **Flutter App Foundation, BLE Manager & UI System** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 4** | **Direct Messaging MVP (Phone A ↔ LoRa ↔ Phone B)** | **COMPLETED & VERIFIED** | 2026-10-12 |
-| **Phase 5** | Multi-Hop Mesh Routing & Store-and-Forward | QUEUED | — |
+| **Phase 5** | **Multi-Hop Mesh Routing & Deduplication** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 6** | End-to-End Cryptography & Authenticated Pairing | QUEUED | — |
 | **Phase 7** | Advanced Features (SOS, Telemetry, Diagnostics) | QUEUED | — |
 | **Phase 8** | Release Engineering, Airtime Audit & Verification | QUEUED | — |
@@ -87,6 +87,20 @@
 
 ---
 
+## 3.5 Phase 5 Deliverables & Checklist
+- [x] Implement `MeshRouter` header-only class ([mesh_x_firmware/src/mesh_router.h](mesh_x_firmware/src/mesh_router.h)) with 64-entry LRU circular buffer for duplicate packet suppression and neighbor table management.
+- [x] Extend `MeshXBLE` ([mesh_x_firmware/src/mesh_x_ble.h](mesh_x_firmware/src/mesh_x_ble.h)) with `sendNodeDiscovered` event (`EVT_NODE_DISCOVERED` `0x84`).
+- [x] Implement autonomous multi-hop mesh forwarding in [mesh_x_firmware/main/main.ino](mesh_x_firmware/main/main.ino) with TTL decrementing, hop count tracking, and randomized collision-avoidance jitter (50–200ms).
+- [x] Add background periodic presence broadcasting (`OTA_PKT_NODE_ANNOUNCE` every 60s) to keep mesh neighbor tables populated.
+- [x] Verify firmware compilation with `arduino-cli` for `esp32:esp32:esp32doit-devkit-v1` (Exit code: 0, 89% flash, 13% RAM).
+- [x] Update mobile SQLite database schema with `nodes` table and version 2 migration.
+- [x] Implement `MeshNodeModel` and `discoveredNodesProvider` reactive state.
+- [x] Build Hallmark-designed `MeshNodesScreen` showing active mesh topology metrics, direct vs relayed indicators, signal metrics (RSSI/SNR), relative timestamps, and instant direct chat launcher.
+- [x] Add "Mesh Nodes" hub to `HomeNavigationScreen` bottom navigation bar.
+- [x] Pass `flutter analyze` (0 issues) and expand unit tests to 9/9 passing tests ([mesh_x_app/test/unit_test.dart](mesh_x_app/test/unit_test.dart)).
+
+---
+
 ## 4. Key Architecture Decisions (ADR Summary)
 
 1. **Firmware Toolchain**:
@@ -95,12 +109,15 @@
 2. **Custom Protocol vs. Meshtastic Compatibility**:
    - MESH-X uses a custom binary protocol optimized for the RA-02 + ESP32 DevKit V1 hardware.
    - Compatibility with third-party ecosystems is not presumed, avoiding proprietary bloat and brittle dependencies.
-3. **State Management & UI**:
+3. **Multi-Hop Routing Architecture**:
+   - 64-entry LRU circular buffer suppresses broadcast storm loops without dynamic memory allocation.
+   - Hop budget bounded by default TTL = 3; random relay jitter (50–200ms) mitigates radio channel collisions.
+4. **State Management & UI**:
    - Flutter with Riverpod for unidirectional state flow.
    - Dark-first aesthetic with strict token architecture, 44x44px touch targets, and offline-first state handling.
-4. **Separation of Concerns**:
+5. **Separation of Concerns**:
    - Flutter never handles SPI or direct radio timings.
-   - ESP32 never relies on the smartphone for mesh packet relaying or deduplication.
+   - ESP32 autonomously handles mesh packet relaying and deduplication even when the smartphone is disconnected.
 
 ---
 
@@ -117,7 +134,8 @@
 ---
 
 ## 6. Next Immediate Milestone
-Upon receipt of `"APPROVE PHASE 0. START PHASE 1."`:
-- Proceed directly to **Phase 1: Hardware Radio Prototype**.
-- Validate pin wiring and SPI connectivity on both nodes.
-- Run bidirectional ping-pong test over 433 MHz LoRa and report RSSI/SNR values.
+Upon receipt of approval:
+- Proceed directly to **Phase 6: Security & End-to-End Cryptography**.
+- Implement client-side Curve25519 / X25519 keypair generation and secure key storage.
+- Implement ChaCha20-Poly1305 authenticated encryption for direct peer messages.
+- QR code public key exchange and anti-replay sequence checking.

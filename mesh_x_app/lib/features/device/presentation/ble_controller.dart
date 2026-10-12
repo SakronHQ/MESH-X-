@@ -44,6 +44,8 @@ class BleState {
       autoReconnect: autoReconnect ?? this.autoReconnect,
     );
   }
+
+  bool get isConnected => status == BleConnectionStatus.connected;
 }
 
 class BleController extends Notifier<BleState> {

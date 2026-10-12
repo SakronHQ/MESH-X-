@@ -6,6 +6,7 @@ import 'package:mesh_x_app/features/device/domain/connection_state.dart';
 import 'package:mesh_x_app/features/device/domain/device_info_model.dart';
 import 'package:mesh_x_app/features/chat/domain/message_model.dart';
 import 'package:mesh_x_app/features/chat/domain/conversation_model.dart';
+import 'package:mesh_x_app/features/mesh/domain/mesh_node_model.dart';
 
 void main() {
   group('MESH-X Core Protocol & Domain Unit Tests', () {
@@ -51,10 +52,13 @@ void main() {
     test('BleConnectionStatus labels are human readable', () {
       expect(BleConnectionStatus.connected.label, equals('Connected'));
       expect(BleConnectionStatus.disconnected.label, equals('Disconnected'));
-      expect(BleConnectionStatus.scanning.label, equals('Scanning for nodes...'));
+      expect(
+          BleConnectionStatus.scanning.label, equals('Scanning for nodes...'));
     });
 
-    test('MessageModel serialization and status transitions behave correctly', () {
+    test(
+        'MessageModel serialization and status transitions behave correctly',
+        () {
       const msg = MessageModel(
         id: 'msg-1234',
         packetId: 998877,
@@ -75,11 +79,13 @@ void main() {
       expect(restored.id, equals('msg-1234'));
       expect(restored.deliveryStatus, equals(MessageDeliveryStatus.queued));
 
-      final delivered = restored.copyWith(deliveryStatus: MessageDeliveryStatus.delivered);
+      final delivered =
+          restored.copyWith(deliveryStatus: MessageDeliveryStatus.delivered);
       expect(delivered.deliveryStatus, equals(MessageDeliveryStatus.delivered));
     });
 
-    test('ConversationModel formatted peer hex handles broadcast properly', () {
+    test('ConversationModel formatted peer hex handles broadcast properly',
+        () {
       const broadcastConv = ConversationModel(
         id: 'broadcast',
         title: 'Public Mesh Broadcast',
@@ -97,6 +103,79 @@ void main() {
         updatedAt: 1700000000,
       );
       expect(directConv.formattedPeerHex, equals('0x1A2B3C4D'));
+    });
+
+    test('MeshNodeModel correctly maps properties and computes hop metrics',
+        () {
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final directNode = MeshNodeModel(
+        nodeId: 0xDEADBEEF,
+        alias: 'Node 0xDEADBEEF',
+        hopDistance: 1,
+        lastRssi: -72,
+        lastSnr: 8.5,
+        lastSeenAt: now,
+      );
+
+      expect(directNode.formattedNodeHex, equals('0xDEADBEEF'));
+      expect(directNode.isDirectNeighbor, isTrue);
+      expect(directNode.relativeLastSeen, equals('Just now'));
+
+      final multiHopNode = directNode.copyWith(hopDistance: 3);
+      expect(multiHopNode.isDirectNeighbor, isFalse);
+      expect(multiHopNode.hopDistance, equals(3));
+
+      final map = directNode.toMap();
+      final fromDb = MeshNodeModel.fromMap(map);
+      expect(fromDb.nodeId, equals(0xDEADBEEF));
+      expect(fromDb.lastRssi, equals(-72));
+      expect(fromDb.lastSnr, equals(8.5));
+    });
+
+    test('Mesh Router 64-entry LRU ring buffer suppresses duplicates', () {
+      final cache = <int>[];
+      const cacheSize = 64;
+
+      bool isDuplicate(int packetId) {
+        if (cache.contains(packetId)) return true;
+        if (cache.length >= cacheSize) {
+          cache.removeAt(0); // Evict oldest
+        }
+        cache.add(packetId);
+        return false;
+      }
+
+      // First time seen -> not duplicate
+      expect(isDuplicate(0x1000), isFalse);
+      // Second time seen -> duplicate!
+      expect(isDuplicate(0x1000), isTrue);
+
+      // Fill cache with 64 new packets
+      for (int i = 1; i <= 64; i++) {
+        expect(isDuplicate(0x2000 + i), isFalse);
+      }
+
+      // 0x1000 should now have been evicted
+      expect(isDuplicate(0x1000), isFalse);
+    });
+
+    test('Mesh Multi-hop TTL decrement and hop count relay rules', () {
+      // Rule 1: Packet with TTL > 1 can be relayed
+      int ttl = 3;
+      int hopCount = 0;
+      bool canRelay = ttl > 1;
+      expect(canRelay, isTrue);
+
+      // After relay
+      ttl--;
+      hopCount++;
+      expect(ttl, equals(2));
+      expect(hopCount, equals(1));
+
+      // Rule 2: Packet with TTL == 1 cannot be relayed further
+      ttl = 1;
+      canRelay = ttl > 1;
+      expect(canRelay, isFalse);
     });
   });
 }

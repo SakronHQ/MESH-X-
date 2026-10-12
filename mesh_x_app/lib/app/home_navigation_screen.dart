@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_colors.dart';
 import '../features/chat/presentation/conversation_list_screen.dart';
 import '../features/device/presentation/device_scanner_screen.dart';
+import '../features/mesh/presentation/mesh_nodes_screen.dart';
 
 class HomeNavigationScreen extends StatefulWidget {
   const HomeNavigationScreen({super.key});
@@ -15,6 +16,7 @@ class _HomeNavigationScreenState extends State<HomeNavigationScreen> {
 
   final List<Widget> _screens = const [
     ConversationListScreen(),
+    MeshNodesScreen(),
     DeviceScannerScreen(),
   ];
 
@@ -45,6 +47,11 @@ class _HomeNavigationScreenState extends State<HomeNavigationScreen> {
               icon: Icon(Icons.forum_outlined),
               activeIcon: Icon(Icons.forum),
               label: 'Messages',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.hub_outlined),
+              activeIcon: Icon(Icons.hub),
+              label: 'Mesh Nodes',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.router_outlined),

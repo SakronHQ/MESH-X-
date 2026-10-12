@@ -1,13 +1,18 @@
 /**
  * =============================================================================
- * MESH-X MAIN NODE FIRMWARE (Phase 4: Direct Messaging MVP Bridge)
+ * MESH-X MAIN NODE FIRMWARE (Phase 5: Multi-Hop Mesh Routing & Deduplication)
  * Target: ESP32 DevKit V1 + SX1278 RA-02 (433 MHz)
  * 
  * Functions:
  * 1. BLE GATT Server (Command In, Event Out, Telemetry, Device Info)
  * 2. SX1278 LoRa Radio Driver (RadioLib, 433.175 MHz, Non-blocking DIO0)
  * 3. Bidirectional Bridge: Phone A <-> BLE <-> ESP32 <-> LoRa <-> ESP32 <-> BLE <-> Phone B
- * 4. Over-the-air Auto ACK and Delivery Receipts
+ * 4. Multi-hop Mesh Router:
+ *    - 64-entry LRU ring buffer for duplicate suppression
+ *    - Neighbor node table (1-hop & multi-hop metrics: RSSI, SNR, Hop distance)
+ *    - Autonomous packet relaying with TTL decrement and randomized CAD jitter
+ *    - Periodic background node presence broadcast (OTA_PKT_NODE_ANNOUNCE)
+ * 5. Over-the-air Auto ACK and Delivery Receipts
  * =============================================================================
  */
 
@@ -17,6 +22,7 @@
 #include "../src/mesh_x_config.h"
 #include "../src/mesh_x_protocol.h"
 #include "../src/mesh_x_ble.h"
+#include "../src/mesh_router.h"
 
 // RadioLib SX1278 Module
 SX1278 radio = new Module(LORA_CS, LORA_DIO0, LORA_RST);
@@ -24,15 +30,21 @@ SX1278 radio = new Module(LORA_CS, LORA_DIO0, LORA_RST);
 // BLE Server instance
 MeshXBLE ble;
 
+// Mesh Router instance
+MeshRouter g_router;
+
 // Node Identity & Globals
 uint32_t g_localNodeId = 0;
 volatile bool g_radioDio0Triggered = false;
 uint32_t g_lastTelemetryTime = 0;
+uint32_t g_lastAnnounceTime = 0;
 
 // Radio packet types (OTA)
-#define OTA_PKT_TEXT_MSG     0x01
-#define OTA_PKT_ACK          0x02
-#define OTA_FLAG_REQ_ACK     0x01
+#define OTA_PKT_TEXT_MSG       0x01
+#define OTA_PKT_ACK            0x02
+#define OTA_PKT_NODE_ANNOUNCE  0x03
+
+#define OTA_FLAG_REQ_ACK       0x01
 
 #pragma pack(push, 1)
 struct OtaPacketHeader {
@@ -75,6 +87,37 @@ bool transmitOtaBuffer(const uint8_t* buffer, size_t totalLen) {
   return (state == RADIOLIB_ERR_NONE);
 }
 
+// Relay an over-the-air packet across the mesh
+void relayPacket(const uint8_t* originalPacket, size_t packetLen) {
+  if (packetLen < sizeof(OtaPacketHeader) + 2 || packetLen > 256) return;
+
+  uint8_t relayBuf[256];
+  memcpy(relayBuf, originalPacket, packetLen);
+  OtaPacketHeader* hdr = reinterpret_cast<OtaPacketHeader*>(relayBuf);
+
+  if (hdr->ttl <= 1) {
+    Serial.printf("[ROUTER] TTL expired for packet 0x%08X. Dropping.\n", (unsigned int)hdr->packetId);
+    return;
+  }
+
+  // Decrement TTL and increment hop count
+  hdr->ttl--;
+  hdr->hopCount++;
+
+  // Recompute CRC-16
+  uint16_t crc = computeCrc16(relayBuf, packetLen - 2);
+  relayBuf[packetLen - 2] = (uint8_t)(crc & 0xFF);
+  relayBuf[packetLen - 1] = (uint8_t)((crc >> 8) & 0xFF);
+
+  // Randomized collision-avoidance jitter (50ms - 200ms)
+  delay(random(50, 200));
+
+  Serial.printf("[ROUTER RELAY] Forwarding packet 0x%08X (Dest: 0x%08X, TTL: %d, Hops: %d)\n",
+    (unsigned int)hdr->packetId, (unsigned int)hdr->destNode, hdr->ttl, hdr->hopCount);
+
+  transmitOtaBuffer(relayBuf, packetLen);
+}
+
 // Send an OTA ACK frame back to sender
 void sendOtaAck(uint32_t packetId, uint32_t targetNode) {
   uint8_t buf[sizeof(OtaPacketHeader) + 2];
@@ -98,6 +141,32 @@ void sendOtaAck(uint32_t packetId, uint32_t targetNode) {
   transmitOtaBuffer(buf, sizeof(buf));
 }
 
+// Broadcast periodic node presence across the mesh
+void sendNodeAnnounce() {
+  uint8_t buf[sizeof(OtaPacketHeader) + 2];
+  OtaPacketHeader* hdr = reinterpret_cast<OtaPacketHeader*>(buf);
+  hdr->magic = MESH_MAGIC_BYTE;
+  hdr->version = MESH_PROTO_VERSION;
+  hdr->packetType = OTA_PKT_NODE_ANNOUNCE;
+  hdr->flags = 0;
+  hdr->ttl = 2; // Propagate up to 2 hops
+  hdr->hopCount = 0;
+  hdr->packetId = (uint32_t)random(1, 0x7FFFFFFF);
+  hdr->srcNode = g_localNodeId;
+  hdr->destNode = 0xFFFFFFFF; // Broadcast
+  hdr->payloadLen = 0;
+
+  // Suppress our own announce packet
+  g_router.isDuplicate(hdr->packetId);
+
+  uint16_t crc = computeCrc16(buf, sizeof(OtaPacketHeader));
+  buf[sizeof(OtaPacketHeader)] = (uint8_t)(crc & 0xFF);
+  buf[sizeof(OtaPacketHeader) + 1] = (uint8_t)((crc >> 8) & 0xFF);
+
+  Serial.printf("[MESH ANNOUNCE] Broadcasting node presence (Node 0x%08X)\n", (unsigned int)g_localNodeId);
+  transmitOtaBuffer(buf, sizeof(buf));
+}
+
 // Callback invoked when mobile app submits message via BLE
 void onMobileMessageSubmitted(const uint8_t* payload, size_t len) {
   // Expected payload: [PACKET_ID: 4B][DEST_NODE: 4B][FLAGS: 1B][TEXT]
@@ -114,6 +183,9 @@ void onMobileMessageSubmitted(const uint8_t* payload, size_t len) {
 
   Serial.printf("[BRIDGE] Outbound Msg from Mobile: PktID 0x%08X -> Dest 0x%08X (len %d)\n",
     (unsigned int)packetId, (unsigned int)destNode, (int)textLen);
+
+  // Suppress our own outbound packet from being relayed back to us
+  g_router.isDuplicate(packetId);
 
   // Build OTA Frame
   size_t otaTotalLen = sizeof(OtaPacketHeader) + textLen + 2;
@@ -159,7 +231,7 @@ void setup() {
   g_localNodeId = (uint32_t)(mac & 0xFFFFFFFF);
 
   Serial.println(F("\n========================================================"));
-  Serial.println(F("           MESH-X NODE FIRMWARE (Phase 4 MVP)          "));
+  Serial.println(F("       MESH-X NODE FIRMWARE (Phase 5 Mesh Router)       "));
   Serial.println(F("========================================================"));
   Serial.printf("Local Node ID    : 0x%08X (MESH-X-%06X)\n", (unsigned int)g_localNodeId, (unsigned int)(g_localNodeId & 0xFFFFFF));
   Serial.printf("LoRa Frequency   : %.3f MHz (SF%d, BW %.1fkHz)\n", LORA_FREQ, LORA_SF, LORA_BW);
@@ -182,8 +254,8 @@ void setup() {
 
   // 3. Initialize BLE GATT Server
   ble.onMessageSubmitted(onMobileMessageSubmitted);
-  ble.begin(g_localNodeId, "1.0.0");
-  Serial.println(F("[INIT] BLE and Radio subsystems running.\n"));
+  ble.begin(g_localNodeId, "1.1.0");
+  Serial.println(F("[INIT] BLE, LoRa Radio and Mesh Router initialized.\n"));
 }
 
 void loop() {
@@ -206,36 +278,75 @@ void loop() {
           const OtaPacketHeader* hdr = reinterpret_cast<const OtaPacketHeader*>(rxBuffer);
 
           if (hdr->magic == MESH_MAGIC_BYTE) {
-            float rssi = radio.getRSSI();
-            float snr  = radio.getSNR();
+            // 1. Duplicate check (LRU ring buffer suppression)
+            if (g_router.isDuplicate(hdr->packetId)) {
+              Serial.printf("[ROUTER] Dropping duplicate packet 0x%08X\n", (unsigned int)hdr->packetId);
+            } else {
+              float rssi = radio.getRSSI();
+              float snr  = radio.getSNR();
 
-            // Check Destination: Is it addressed to us or broadcast?
-            bool isForMe = (hdr->destNode == g_localNodeId) || (hdr->destNode == 0xFFFFFFFF);
+              // 2. Record neighbor node & notify mobile app via BLE
+              uint8_t calculatedHops = hdr->hopCount + 1;
+              g_router.recordNeighbor(hdr->srcNode, calculatedHops, rssi, snr);
+              ble.sendNodeDiscovered(hdr->srcNode, calculatedHops, rssi, snr);
 
-            if (isForMe) {
-              if (hdr->packetType == OTA_PKT_TEXT_MSG) {
-                String text = "";
-                for (size_t i = 0; i < hdr->payloadLen; ++i) {
-                  text += (char)rxBuffer[sizeof(OtaPacketHeader) + i];
+              // 3. Address matching & Multi-hop forwarding
+              bool isForMe = (hdr->destNode == g_localNodeId);
+              bool isBroadcast = (hdr->destNode == 0xFFFFFFFF);
+
+              if (isForMe) {
+                if (hdr->packetType == OTA_PKT_TEXT_MSG) {
+                  String text = "";
+                  for (size_t i = 0; i < hdr->payloadLen; ++i) {
+                    text += (char)rxBuffer[sizeof(OtaPacketHeader) + i];
+                  }
+
+                  Serial.printf("[LORA RX] Direct Msg from 0x%08X (Hops: %u): \"%s\" (RSSI: %.1f, SNR: %.1f)\n",
+                    (unsigned int)hdr->srcNode, calculatedHops, text.c_str(), rssi, snr);
+
+                  // Auto-reply ACK if requested
+                  if (hdr->flags & OTA_FLAG_REQ_ACK) {
+                    delay(40);
+                    sendOtaAck(hdr->packetId, hdr->srcNode);
+                  }
+
+                  // Bridge to connected mobile phone via BLE Event Out notification
+                  ble.sendRxMessage(hdr->srcNode, text, rssi, snr);
+
+                } else if (hdr->packetType == OTA_PKT_ACK) {
+                  Serial.printf("[LORA RX ACK] Received Delivery ACK for Packet ID 0x%08X\n", (unsigned int)hdr->packetId);
+                  uint32_t ackPktId = hdr->packetId;
+                  ble.sendEvent(EVT_DELIVERY_ACK, 0, (const uint8_t*)&ackPktId, sizeof(ackPktId));
                 }
 
-                Serial.printf("[LORA RX] From 0x%08X: \"%s\" (RSSI: %.1f, SNR: %.1f)\n",
-                  (unsigned int)hdr->srcNode, text.c_str(), rssi, snr);
+              } else if (isBroadcast) {
+                if (hdr->packetType == OTA_PKT_TEXT_MSG) {
+                  String text = "";
+                  for (size_t i = 0; i < hdr->payloadLen; ++i) {
+                    text += (char)rxBuffer[sizeof(OtaPacketHeader) + i];
+                  }
 
-                // Auto-reply ACK if requested and not broadcast
-                if ((hdr->flags & OTA_FLAG_REQ_ACK) && hdr->destNode != 0xFFFFFFFF) {
-                  delay(40); // turnaround delay
-                  sendOtaAck(hdr->packetId, hdr->srcNode);
+                  Serial.printf("[LORA RX BCAST] From 0x%08X: \"%s\"\n", (unsigned int)hdr->srcNode, text.c_str());
+                  ble.sendRxMessage(hdr->srcNode, text, rssi, snr);
+                } else if (hdr->packetType == OTA_PKT_NODE_ANNOUNCE) {
+                  Serial.printf("[LORA RX ANNOUNCE] Node 0x%08X discovered (Hops: %u, RSSI: %.1f)\n",
+                    (unsigned int)hdr->srcNode, calculatedHops, rssi);
                 }
 
-                // Bridge to connected mobile phone via BLE Event Out notification
-                ble.sendRxMessage(hdr->srcNode, text, rssi, snr);
+                // Autonomous Broadcast Flood Relay (if TTL > 1)
+                if (hdr->ttl > 1) {
+                  relayPacket(rxBuffer, rxLen);
+                }
 
-              } else if (hdr->packetType == OTA_PKT_ACK) {
-                Serial.printf("[LORA RX ACK] Received Delivery ACK for Packet ID 0x%08X\n", (unsigned int)hdr->packetId);
-                // Forward delivery ACK to mobile phone via BLE
-                uint32_t ackPktId = hdr->packetId;
-                ble.sendEvent(EVT_DELIVERY_ACK, 0, (const uint8_t*)&ackPktId, sizeof(ackPktId));
+              } else {
+                // Unicast packet addressed to another node in the mesh -> Relay it!
+                Serial.printf("[ROUTER] Packet 0x%08X addressed to 0x%08X (not us). Relaying...\n",
+                  (unsigned int)hdr->packetId, (unsigned int)hdr->destNode);
+                if (hdr->ttl > 1) {
+                  relayPacket(rxBuffer, rxLen);
+                } else {
+                  Serial.println(F("[ROUTER] TTL exhausted for unicast packet. Dropping."));
+                }
               }
             }
           }
@@ -253,7 +364,13 @@ void loop() {
     g_lastTelemetryTime = millis();
     int rssi = (int)radio.getRSSI();
     float snr = radio.getSNR();
-    ble.updateTelemetry(rssi, snr, 0, millis() / 1000);
+    ble.updateTelemetry(rssi, snr, (uint32_t)g_router.getNeighborCount(), millis() / 1000);
+  }
+
+  // Periodic Mesh Presence Announcement (every 60 seconds)
+  if (millis() - g_lastAnnounceTime >= 60000) {
+    g_lastAnnounceTime = millis();
+    sendNodeAnnounce();
   }
 
   yield();

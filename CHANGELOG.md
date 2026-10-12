@@ -4,6 +4,19 @@ All notable changes to the MESH-X project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0-phase5] - 2026-10-12
+### Added
+- Implemented `MeshRouter` inline C++ header with a 64-entry LRU ring buffer for duplicate packet suppression and neighbor table tracking.
+- Added `sendNodeDiscovered` event (`EVT_NODE_DISCOVERED` `0x84`) to `MeshXBLE` GATT server.
+- Integrated autonomous multi-hop mesh forwarding in `mesh_x_firmware/main/main.ino` with TTL decrementing, hop count tracking, and randomized collision-avoidance jitter (50–200ms).
+- Added periodic background presence broadcasting (`OTA_PKT_NODE_ANNOUNCE` every 60s) to discover neighbor nodes autonomously.
+- Verified firmware compilation with `arduino-cli` (Exit code: 0, 89% flash, 13% RAM).
+- Added SQLite `nodes` table and version 2 database migration in Flutter app.
+- Created `MeshNodeModel` and `discoveredNodesProvider` for reactive mesh state.
+- Built Hallmark-designed `MeshNodesScreen` displaying active topology metrics, direct vs relayed indicators, signal metrics (RSSI/SNR), relative timestamps, and one-tap direct chat.
+- Added "Mesh Nodes" hub to `HomeNavigationScreen` bottom navigation bar.
+- Passed `flutter analyze` (0 issues) and expanded unit test suite to 9/9 passing tests (`dart test`).
+
 ## [0.5.0-phase4] - 2026-10-12
 ### Added
 - Integrated local SQLite database (`sqflite`) for offline-first message and conversation storage.

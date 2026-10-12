@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/constants/ble_constants.dart';
 import '../../../data/database/app_database.dart';
 import '../../device/data/ble_repository.dart';
+import '../../mesh/domain/mesh_node_model.dart';
 import '../domain/conversation_model.dart';
 import '../domain/message_model.dart';
 
@@ -14,11 +16,18 @@ class ChatRepository {
   final _uuid = const Uuid();
   StreamSubscription<List<int>>? _bleEventSubscription;
 
-  final _conversationsStreamController = StreamController<List<ConversationModel>>.broadcast();
-  Stream<List<ConversationModel>> get conversationsStream => _conversationsStreamController.stream;
+  final _conversationsStreamController =
+      StreamController<List<ConversationModel>>.broadcast();
+  Stream<List<ConversationModel>> get conversationsStream =>
+      _conversationsStreamController.stream;
 
-  final _messagesStreamController = StreamController<String>.broadcast(); // Emits conversationId on update
+  final _messagesStreamController =
+      StreamController<String>.broadcast(); // Emits conversationId on update
   Stream<String> get messagesUpdateStream => _messagesStreamController.stream;
+
+  final _nodesStreamController =
+      StreamController<List<MeshNodeModel>>.broadcast();
+  Stream<List<MeshNodeModel>> get nodesStream => _nodesStreamController.stream;
 
   ChatRepository(this._bleRepository) {
     _initEventListener();
@@ -48,6 +57,47 @@ class ChatRepository {
       orderBy: 'created_at ASC',
     );
     return maps.map((m) => MessageModel.fromMap(m)).toList();
+  }
+
+  Future<List<MeshNodeModel>> getDiscoveredNodes() async {
+    final db = await AppDatabase.instance;
+    final maps = await db.query(
+      'nodes',
+      orderBy: 'last_seen_at DESC',
+    );
+    return maps.map((m) => MeshNodeModel.fromMap(m)).toList();
+  }
+
+  Future<ConversationModel> ensureConversationForNode(int nodeId) async {
+    final db = await AppDatabase.instance;
+    final convId =
+        '0x${nodeId.toRadixString(16).padLeft(8, '0').toUpperCase()}';
+    final existing = await db.query(
+      'conversations',
+      where: 'id = ?',
+      whereArgs: [convId],
+    );
+
+    if (existing.isEmpty) {
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final conv = ConversationModel(
+        id: convId,
+        title: 'Node $convId',
+        peerNodeId: nodeId,
+        lastMessageText: 'Direct channel opened.',
+        lastMessageTimestamp: now,
+        unreadCount: 0,
+        isPinned: false,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await db.insert('conversations', conv.toMap());
+      final convs = await getConversations();
+      _conversationsStreamController.add(convs);
+      return conv;
+    } else {
+      return ConversationModel.fromMap(existing.first);
+    }
   }
 
   Future<MessageModel> sendMessage({
@@ -107,7 +157,8 @@ class ChatRepository {
 
   Future<void> retryMessage(String messageId) async {
     final db = await AppDatabase.instance;
-    final maps = await db.query('messages', where: 'id = ?', whereArgs: [messageId]);
+    final maps =
+        await db.query('messages', where: 'id = ?', whereArgs: [messageId]);
     if (maps.isEmpty) return;
 
     final msg = MessageModel.fromMap(maps.first);
@@ -155,10 +206,12 @@ class ChatRepository {
       final text = utf8.decode(payload.sublist(6));
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
-      final convId = '0x${srcNode.toRadixString(16).padLeft(8, '0').toUpperCase()}';
+      final convId =
+          '0x${srcNode.toRadixString(16).padLeft(8, '0').toUpperCase()}';
 
       // Ensure conversation exists
-      final existingConvs = await db.query('conversations', where: 'id = ?', whereArgs: [convId]);
+      final existingConvs =
+          await db.query('conversations', where: 'id = ?', whereArgs: [convId]);
       if (existingConvs.isEmpty) {
         await db.insert('conversations', {
           'id': convId,
@@ -206,7 +259,9 @@ class ChatRepository {
       final statusByte = payload[1];
       final newStatus = statusByte == 0x02
           ? MessageDeliveryStatus.transmitted
-          : (statusByte == 0x03 ? MessageDeliveryStatus.failed : MessageDeliveryStatus.queued);
+          : (statusByte == 0x03
+              ? MessageDeliveryStatus.failed
+              : MessageDeliveryStatus.queued);
 
       // Update most recent queued message
       final latest = await db.query(
@@ -237,7 +292,8 @@ class ChatRepository {
       final packetId = bd.getUint32(0, Endian.little);
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
-      final matched = await db.query('messages', where: 'packet_id = ?', whereArgs: [packetId]);
+      final matched = await db
+          .query('messages', where: 'packet_id = ?', whereArgs: [packetId]);
       if (matched.isNotEmpty) {
         final convId = matched.first['conversation_id'] as String;
         await db.update(
@@ -252,6 +308,35 @@ class ChatRepository {
         _notifyUpdates(convId);
       }
     }
+
+    // 4. Mesh Node Discovered: EVT_NODE_DISCOVERED (0x84)
+    // Payload: [NODE_ID: 4B][HOPS: 1B][RSSI: 1B (int8)][SNR: 1B (int8)]
+    else if (eventType == BleConstants.evtNodeDiscovered &&
+        payload.length >= 7) {
+      final bd = ByteData.sublistView(payload);
+      final nodeId = bd.getUint32(0, Endian.little);
+      final hops = bd.getUint8(4);
+      final rssi = bd.getInt8(5);
+      final snr = bd.getInt8(6).toDouble();
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+      await db.insert(
+        'nodes',
+        {
+          'node_id': nodeId,
+          'alias':
+              'Node 0x${nodeId.toRadixString(16).padLeft(8, '0').toUpperCase()}',
+          'hop_distance': hops,
+          'last_rssi': rssi,
+          'last_snr': snr,
+          'last_seen_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      final nodes = await getDiscoveredNodes();
+      _nodesStreamController.add(nodes);
+    }
   }
 
   void _notifyUpdates(String conversationId) async {
@@ -264,5 +349,6 @@ class ChatRepository {
     _bleEventSubscription?.cancel();
     _conversationsStreamController.close();
     _messagesStreamController.close();
+    _nodesStreamController.close();
   }
 }

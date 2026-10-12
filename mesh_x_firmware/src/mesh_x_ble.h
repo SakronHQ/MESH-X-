@@ -193,6 +193,17 @@ public:
     return sendEvent(EVT_RX_MESSAGE, m_outboundSeq, payload, payloadLen);
   }
 
+  bool sendNodeDiscovered(uint32_t nodeId, uint8_t hops, float rssi, float snr) {
+    if (!m_deviceConnected) return false;
+    uint8_t payload[7];
+    memcpy(payload, &nodeId, 4);
+    payload[4] = hops;
+    payload[5] = (int8_t)rssi;
+    payload[6] = (int8_t)snr;
+    m_outboundSeq++;
+    return sendEvent(EVT_NODE_DISCOVERED, m_outboundSeq, payload, sizeof(payload));
+  }
+
   // BLEServerCallbacks
   void onConnect(BLEServer* pServer) override {
     m_deviceConnected = true;
