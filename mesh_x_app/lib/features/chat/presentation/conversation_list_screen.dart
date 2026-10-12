@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../../device/presentation/ble_controller.dart';
+import '../../sos/presentation/sos_alert_banner.dart';
+import '../../sos/presentation/sos_composer_dialog.dart';
+import '../../sos/presentation/sos_controller.dart';
 import '../domain/conversation_model.dart';
 import 'chat_controller.dart';
 import 'chat_conversation_screen.dart';
@@ -14,11 +17,30 @@ class ConversationListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final bleState = ref.watch(bleControllerProvider);
     final convsAsync = ref.watch(conversationsProvider);
+    final activeSos = ref.watch(activeSosAlertProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('MESH-X Messages'),
         actions: [
+          IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
+              ),
+              child: const Icon(Icons.emergency, color: AppColors.error, size: 18),
+            ),
+            tooltip: 'Emergency SOS Broadcast',
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (_) => const SosComposerDialog(),
+              );
+            },
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -27,7 +49,11 @@ class ConversationListScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: convsAsync.when(
+      body: Column(
+        children: [
+          if (activeSos != null) SosAlertBanner(alert: activeSos),
+          Expanded(
+            child: convsAsync.when(
         data: (conversations) {
           if (conversations.isEmpty) {
             return const Center(
@@ -56,6 +82,9 @@ class ConversationListScreen extends ConsumerWidget {
           child: Text('Error loading conversations: $err', style: const TextStyle(color: AppColors.error)),
         ),
       ),
+    ),
+  ],
+),
       floatingActionButton: FloatingActionButton(
         backgroundColor: AppColors.accent,
         foregroundColor: Colors.black,

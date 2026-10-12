@@ -81,6 +81,7 @@ class BleController extends Notifier<BleState> {
           snr: (data['snr'] as num?)?.toDouble() ?? state.deviceInfo!.snr,
           queueDepth: data['queue'] as int? ?? state.deviceInfo!.queueDepth,
           uptimeSec: data['uptime'] as int? ?? state.deviceInfo!.uptimeSec,
+          batteryMv: data['batt'] as int? ?? state.deviceInfo!.batteryMv,
         );
         state = state.copyWith(deviceInfo: updated);
       }

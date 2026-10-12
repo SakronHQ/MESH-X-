@@ -10,6 +10,7 @@ import '../../../core/security/preferences_key_storage.dart';
 import '../../../data/database/app_database.dart';
 import '../../device/data/ble_repository.dart';
 import '../../mesh/domain/mesh_node_model.dart';
+import '../../sos/domain/sos_alert_model.dart';
 import '../domain/conversation_model.dart';
 import '../domain/message_model.dart';
 
@@ -31,6 +32,10 @@ class ChatRepository {
   final _nodesStreamController =
       StreamController<List<MeshNodeModel>>.broadcast();
   Stream<List<MeshNodeModel>> get nodesStream => _nodesStreamController.stream;
+
+  final _sosAlertStreamController =
+      StreamController<SosAlertModel>.broadcast();
+  Stream<SosAlertModel> get sosAlertStream => _sosAlertStreamController.stream;
 
   ChatRepository(
     this._bleRepository, [
@@ -219,6 +224,72 @@ class ChatRepository {
     return message;
   }
 
+  Future<void> submitSos({
+    required String distressMessage,
+    double? latitude,
+    double? longitude,
+    required int localNodeId,
+  }) async {
+    final db = await AppDatabase.instance;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final packetId = Random().nextInt(0x7FFFFFFF);
+
+    // Wire format: [PACKET_ID: 4B][LAT_E7: 4B][LON_E7: 4B][TEXT]
+    final textBytes = Uint8List.fromList(utf8.encode(distressMessage));
+    final payload = Uint8List(4 + 4 + 4 + textBytes.length);
+    final bd = ByteData.sublistView(payload);
+    bd.setUint32(0, packetId, Endian.little);
+    final latE7 = latitude != null ? (latitude * 10000000).round() : 0;
+    final lonE7 = longitude != null ? (longitude * 10000000).round() : 0;
+    bd.setInt32(4, latE7, Endian.little);
+    bd.setInt32(8, lonE7, Endian.little);
+    payload.setRange(12, 12 + textBytes.length, textBytes);
+
+    // Send emergency command to ESP32 BLE
+    await _bleRepository.sendCommand(BleConstants.cmdSubmitSos, payload);
+
+    // Format local SOS alert message
+    final locationTag = (latitude != null &&
+            longitude != null &&
+            (latitude != 0.0 || longitude != 0.0))
+        ? ' [GPS: ${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}]'
+        : '';
+    final formattedContent = '🚨 [SOS DISTRESS] $distressMessage$locationTag';
+
+    final msgId = _uuid.v4();
+    final message = MessageModel(
+      id: msgId,
+      packetId: packetId,
+      conversationId: 'broadcast',
+      senderNodeId: localNodeId,
+      recipientNodeId: 0xFFFFFFFF,
+      textContent: formattedContent,
+      deliveryStatus: MessageDeliveryStatus.queued,
+      isIncoming: false,
+      isEncrypted: false,
+      createdAt: now,
+    );
+
+    await db.insert('messages', message.toMap());
+    await db.rawUpdate('''
+      UPDATE conversations 
+      SET last_message_text = ?, last_message_timestamp = ?, updated_at = ?
+      WHERE id = ?
+    ''', [formattedContent, now, now, 'broadcast']);
+
+    _notifyUpdates('broadcast');
+
+    final localAlert = SosAlertModel(
+      packetId: packetId,
+      senderNodeId: localNodeId,
+      latitude: latitude,
+      longitude: longitude,
+      distressMessage: distressMessage,
+      timestamp: now,
+    );
+    _sosAlertStreamController.add(localAlert);
+  }
+
   Future<void> retryMessage(String messageId) async {
     final db = await AppDatabase.instance;
     final maps =
@@ -296,6 +367,69 @@ class ChatRepository {
       final rawMsg = payload.sublist(7);
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       final isEncrypted = (flags & 0x02) != 0;
+      final isSos = (flags & 0x08) != 0;
+
+      // Handle SOS Distress Packets
+      if (isSos) {
+        double? lat;
+        double? lon;
+        String sosText;
+        if (rawMsg.length >= 8) {
+          final sosBd = ByteData.sublistView(rawMsg);
+          final latE7 = sosBd.getInt32(0, Endian.little);
+          final lonE7 = sosBd.getInt32(4, Endian.little);
+          if (latE7 != 0 || lonE7 != 0) {
+            lat = latE7 / 10000000.0;
+            lon = lonE7 / 10000000.0;
+          }
+          final textBytes = rawMsg.sublist(8);
+          sosText = utf8.decode(textBytes, allowMalformed: true);
+        } else {
+          sosText = utf8.decode(rawMsg, allowMalformed: true);
+        }
+
+        final alert = SosAlertModel(
+          packetId: 0,
+          senderNodeId: srcNode,
+          latitude: lat,
+          longitude: lon,
+          distressMessage: sosText,
+          timestamp: now,
+          rssi: rssi,
+          snr: snr,
+        );
+        _sosAlertStreamController.add(alert);
+
+        final locationTag = alert.hasLocation ? ' [GPS: ${alert.locationString}]' : '';
+        final broadcastText = '🚨 [EMERGENCY SOS from ${alert.formattedNodeHex}] $sosText$locationTag';
+
+        await db.rawUpdate('''
+          UPDATE conversations 
+          SET last_message_text = ?, last_message_timestamp = ?, unread_count = unread_count + 1, updated_at = ?
+          WHERE id = ?
+        ''', [broadcastText, now, now, 'broadcast']);
+
+        final msgId = _uuid.v4();
+        final incomingMsg = MessageModel(
+          id: msgId,
+          packetId: 0,
+          conversationId: 'broadcast',
+          senderNodeId: srcNode,
+          recipientNodeId: 0xFFFFFFFF,
+          textContent: broadcastText,
+          deliveryStatus: MessageDeliveryStatus.delivered,
+          isIncoming: true,
+          isEncrypted: false,
+          rssi: rssi,
+          snr: snr,
+          createdAt: now,
+          deliveredAt: now,
+        );
+        await db.insert('messages', incomingMsg.toMap());
+
+        _notifyUpdates('broadcast');
+        return;
+      }
 
       String text;
       if (isEncrypted) {
@@ -472,5 +606,6 @@ class ChatRepository {
     _conversationsStreamController.close();
     _messagesStreamController.close();
     _nodesStreamController.close();
+    _sosAlertStreamController.close();
   }
 }

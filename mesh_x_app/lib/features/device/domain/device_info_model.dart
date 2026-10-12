@@ -7,6 +7,7 @@ class MeshXDeviceInfo {
   final double snr;
   final int queueDepth;
   final int uptimeSec;
+  final int batteryMv;
 
   const MeshXDeviceInfo({
     required this.nodeId,
@@ -17,6 +18,7 @@ class MeshXDeviceInfo {
     this.snr = 0.0,
     this.queueDepth = 0,
     this.uptimeSec = 0,
+    this.batteryMv = 4120,
   });
 
   MeshXDeviceInfo copyWith({
@@ -28,6 +30,7 @@ class MeshXDeviceInfo {
     double? snr,
     int? queueDepth,
     int? uptimeSec,
+    int? batteryMv,
   }) {
     return MeshXDeviceInfo(
       nodeId: nodeId ?? this.nodeId,
@@ -38,6 +41,7 @@ class MeshXDeviceInfo {
       snr: snr ?? this.snr,
       queueDepth: queueDepth ?? this.queueDepth,
       uptimeSec: uptimeSec ?? this.uptimeSec,
+      batteryMv: batteryMv ?? this.batteryMv,
     );
   }
 
@@ -51,8 +55,17 @@ class MeshXDeviceInfo {
       snr: (json['snr'] as num?)?.toDouble() ?? 0.0,
       queueDepth: json['queue'] as int? ?? 0,
       uptimeSec: json['uptime'] as int? ?? 0,
+      batteryMv: json['batt'] as int? ?? 4120,
     );
   }
 
   String get formattedNodeHex => '0x${nodeId.toRadixString(16).padLeft(8, '0').toUpperCase()}';
+
+  double get batteryVoltage => batteryMv / 1000.0;
+
+  int get batteryPercentage {
+    if (batteryMv >= 4200) return 100;
+    if (batteryMv <= 3600) return 0;
+    return (((batteryMv - 3600) / (4200 - 3600)) * 100).round().clamp(0, 100);
+  }
 }

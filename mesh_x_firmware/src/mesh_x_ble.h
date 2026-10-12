@@ -8,6 +8,7 @@
 #include "mesh_x_protocol.h"
 
 typedef void (*MessageSubmitCallback)(const uint8_t* payload, size_t len);
+typedef void (*SosSubmitCallback)(const uint8_t* payload, size_t len);
 
 class MeshXBLE : public BLEServerCallbacks, public BLECharacteristicCallbacks {
 public:
@@ -22,7 +23,8 @@ public:
       m_pCommandInChar(nullptr),
       m_pEventOutChar(nullptr),
       m_pTelemetryChar(nullptr),
-      m_msgCb(nullptr) {
+      m_msgCb(nullptr),
+      m_sosCb(nullptr) {
   }
 
   bool begin(uint32_t nodeId, const String& fwVersion = "1.0.0") {
@@ -107,6 +109,7 @@ public:
   uint32_t getNodeId() const { return m_nodeId; }
 
   void onMessageSubmitted(MessageSubmitCallback cb) { m_msgCb = cb; }
+  void onSosSubmitted(SosSubmitCallback cb) { m_sosCb = cb; }
 
   void updateDeviceInfo() {
     if (!m_pDeviceInfoChar) return;
@@ -121,12 +124,12 @@ public:
     m_pDeviceInfoChar->setValue((uint8_t*)infoJson, strlen(infoJson));
   }
 
-  bool updateTelemetry(int rssi, float snr, uint32_t queueDepth, uint32_t uptimeSec) {
+  bool updateTelemetry(int rssi, float snr, uint32_t queueDepth, uint32_t uptimeSec, uint32_t batteryMv = 4120) {
     if (!m_pTelemetryChar) return false;
-    char teleJson[128];
+    char teleJson[160];
     snprintf(teleJson, sizeof(teleJson),
-      "{\"rssi\":%d,\"snr\":%.1f,\"queue\":%u,\"uptime\":%u}",
-      rssi, snr, (unsigned int)queueDepth, (unsigned int)uptimeSec
+      "{\"rssi\":%d,\"snr\":%.1f,\"queue\":%u,\"uptime\":%u,\"batt\":%u}",
+      rssi, snr, (unsigned int)queueDepth, (unsigned int)uptimeSec, (unsigned int)batteryMv
     );
     m_pTelemetryChar->setValue((uint8_t*)teleJson, strlen(teleJson));
     if (m_deviceConnected) {
@@ -271,6 +274,7 @@ private:
   BLECharacteristic* m_pTelemetryChar;
 
   MessageSubmitCallback m_msgCb;
+  SosSubmitCallback     m_sosCb;
 
   void processCommand(uint8_t cmdType, uint16_t seqNum, const uint8_t* payload, size_t len) {
     Serial.printf("[BLE CMD] Type: 0x%02X | Seq: %u | Payload: %d B\n", cmdType, seqNum, (int)len);
@@ -288,6 +292,15 @@ private:
         sendTxStatus(seqNum, TX_STATUS_QUEUED);
         if (m_msgCb) {
           m_msgCb(payload, len);
+        }
+        break;
+      }
+
+      case CMD_SUBMIT_SOS: {
+        Serial.println(F("[BLE CMD] SUBMIT_SOS received!"));
+        sendTxStatus(seqNum, TX_STATUS_QUEUED);
+        if (m_sosCb) {
+          m_sosCb(payload, len);
         }
         break;
       }

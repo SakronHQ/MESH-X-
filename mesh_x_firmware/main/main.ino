@@ -43,8 +43,11 @@ uint32_t g_lastAnnounceTime = 0;
 #define OTA_PKT_TEXT_MSG       0x01
 #define OTA_PKT_ACK            0x02
 #define OTA_PKT_NODE_ANNOUNCE  0x03
+#define OTA_PKT_SOS            0x04
 
 #define OTA_FLAG_REQ_ACK       0x01
+#define OTA_FLAG_ENCRYPTED     0x02
+#define OTA_FLAG_SOS           0x08
 
 #pragma pack(push, 1)
 struct OtaPacketHeader {
@@ -222,6 +225,54 @@ void onMobileMessageSubmitted(const uint8_t* payload, size_t len) {
   ble.sendTxStatus(0, ok ? TX_STATUS_TRANSMITTED : TX_STATUS_FAILED);
 }
 
+// Callback invoked when mobile app submits an emergency SOS broadcast
+void onMobileSosSubmitted(const uint8_t* payload, size_t len) {
+  // Expected payload: [PACKET_ID: 4B][BODY_BYTES...]
+  if (len < 4) {
+    Serial.println(F("[SOS ERR] Submitted SOS payload too short."));
+    return;
+  }
+
+  uint32_t packetId = *reinterpret_cast<const uint32_t*>(payload);
+  const uint8_t* sosBody = payload + 4;
+  size_t sosBodyLen = len - 4;
+
+  Serial.printf("[SOS BROADCAST] Initiating Emergency SOS! Packet ID 0x%08X (len %d)\n",
+    (unsigned int)packetId, (int)sosBodyLen);
+
+  g_router.isDuplicate(packetId);
+
+  size_t otaTotalLen = sizeof(OtaPacketHeader) + sosBodyLen + 2;
+  uint8_t otaBuf[256];
+  if (otaTotalLen > sizeof(otaBuf)) {
+    Serial.println(F("[SOS ERR] SOS payload exceeds RF limit."));
+    return;
+  }
+
+  OtaPacketHeader* hdr = reinterpret_cast<OtaPacketHeader*>(otaBuf);
+  hdr->magic = MESH_MAGIC_BYTE;
+  hdr->version = MESH_PROTO_VERSION;
+  hdr->packetType = OTA_PKT_SOS;
+  hdr->flags = OTA_FLAG_SOS;
+  hdr->ttl = 3;
+  hdr->hopCount = 0;
+  hdr->packetId = packetId;
+  hdr->srcNode = g_localNodeId;
+  hdr->destNode = 0xFFFFFFFF; // Flood broadcast
+  hdr->payloadLen = (uint8_t)sosBodyLen;
+
+  if (sosBodyLen > 0) {
+    memcpy(otaBuf + sizeof(OtaPacketHeader), sosBody, sosBodyLen);
+  }
+
+  uint16_t crc = computeCrc16(otaBuf, sizeof(OtaPacketHeader) + sosBodyLen);
+  otaBuf[sizeof(OtaPacketHeader) + sosBodyLen] = (uint8_t)(crc & 0xFF);
+  otaBuf[sizeof(OtaPacketHeader) + sosBodyLen + 1] = (uint8_t)((crc >> 8) & 0xFF);
+
+  bool ok = transmitOtaBuffer(otaBuf, otaTotalLen);
+  ble.sendTxStatus(0, ok ? TX_STATUS_TRANSMITTED : TX_STATUS_FAILED);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -254,8 +305,9 @@ void setup() {
 
   // 3. Initialize BLE GATT Server
   ble.onMessageSubmitted(onMobileMessageSubmitted);
-  ble.begin(g_localNodeId, "1.2.0");
-  Serial.println(F("[INIT] BLE, LoRa Radio and Mesh Router initialized.\n"));
+  ble.onSosSubmitted(onMobileSosSubmitted);
+  ble.begin(g_localNodeId, "1.3.0");
+  Serial.println(F("[INIT] BLE, LoRa Radio and Mesh Router initialized (Phase 7 SOS Active).\n"));
 }
 
 void loop() {
@@ -331,6 +383,10 @@ void loop() {
                 } else if (hdr->packetType == OTA_PKT_NODE_ANNOUNCE) {
                   Serial.printf("[LORA RX ANNOUNCE] Node 0x%08X discovered (Hops: %u, RSSI: %.1f)\n",
                     (unsigned int)hdr->srcNode, calculatedHops, rssi);
+                } else if (hdr->packetType == OTA_PKT_SOS) {
+                  Serial.printf("[LORA RX SOS] !!! EMERGENCY SOS ALERT !!! From 0x%08X (Hops: %u, RSSI: %.1f)\n",
+                    (unsigned int)hdr->srcNode, calculatedHops, rssi);
+                  ble.sendRxMessage(hdr->srcNode, hdr->flags | OTA_FLAG_SOS, rxBuffer + sizeof(OtaPacketHeader), hdr->payloadLen, rssi, snr);
                 }
 
                 // Autonomous Broadcast Flood Relay (if TTL > 1)
@@ -364,7 +420,8 @@ void loop() {
     g_lastTelemetryTime = millis();
     int rssi = (int)radio.getRSSI();
     float snr = radio.getSNR();
-    ble.updateTelemetry(rssi, snr, (uint32_t)g_router.getNeighborCount(), millis() / 1000);
+    uint32_t batteryMv = 4120; // Nominal 4.12V LiPo battery
+    ble.updateTelemetry(rssi, snr, (uint32_t)g_router.getNeighborCount(), millis() / 1000, batteryMv);
   }
 
   // Periodic Mesh Presence Announcement (every 60 seconds)

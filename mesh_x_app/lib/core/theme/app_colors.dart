@@ -18,6 +18,7 @@ class AppColors {
 
   // Status & Semantic
   static const Color connected = Color(0xFF10B981); // Emerald
+  static const Color success = Color(0xFF10B981);
   static const Color disconnected = Color(0xFF64748B); // Slate Muted
   static const Color scanning = Color(0xFF38BDF8); // Sky Blue
   static const Color warning = Color(0xFFF59E0B); // Amber

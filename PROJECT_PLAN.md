@@ -20,7 +20,7 @@
 | **Phase 4** | **Direct Messaging MVP (Phone A ↔ LoRa ↔ Phone B)** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 5** | **Multi-Hop Mesh Routing & Deduplication** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 6** | **End-to-End Cryptography & Authenticated Pairing** | **COMPLETED & VERIFIED** | 2026-10-12 |
-| **Phase 7** | Advanced Features (SOS, Telemetry, Diagnostics) | QUEUED | — |
+| **Phase 7** | **Advanced Features (SOS, Telemetry, Diagnostics)** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 8** | Release Engineering, Airtime Audit & Verification | QUEUED | — |
 
 ---
@@ -115,6 +115,20 @@
 
 ---
 
+## 3.7 Phase 7 Deliverables & Checklist
+- [x] Integrate `geolocator: ^14.1.1` in Flutter application with fine and coarse location permissions.
+- [x] Create `SosAlertModel` ([mesh_x_app/lib/features/sos/domain/sos_alert_model.dart](mesh_x_app/lib/features/sos/domain/sos_alert_model.dart)) with GPS coordinate formatting, location validation, and micro-degree E7 scaling.
+- [x] Update ESP32 BLE GATT protocol with `CMD_SUBMIT_SOS` (`0x14`), `OTA_PKT_SOS` (`0x04`), `OTA_FLAG_SOS` (`0x08`), and battery voltage monitoring (`batteryMv`) in telemetry JSON.
+- [x] Successfully recompile ESP32 firmware with `arduino-cli` (Exit code: 0, 89% flash, 13% RAM).
+- [x] Add battery gauge (voltage & percentage calculation) and transmission queue depth to `TelemetryCard` and `DeviceDashboardScreen`.
+- [x] Update `ChatRepository` to submit SOS distress packets over BLE, receive over-the-air SOS frames, log them in SQLite, and stream alerts to the UI.
+- [x] Build `SosComposerDialog` ([mesh_x_app/lib/features/sos/presentation/sos_composer_dialog.dart](mesh_x_app/lib/features/sos/presentation/sos_composer_dialog.dart)) with emergency category presets, optional GPS coordinate acquisition, and 3-second safety hold-to-send trigger.
+- [x] Build `SosAlertBanner` ([mesh_x_app/lib/features/sos/presentation/sos_alert_banner.dart](mesh_x_app/lib/features/sos/presentation/sos_alert_banner.dart)) with high-contrast emergency visuals, node ID, distress details, GPS coordinate copying, and dismiss trigger.
+- [x] Integrate Emergency Beacon trigger button in `ConversationListScreen` AppBar and dynamic SOS alert banner.
+- [x] Pass static analysis (`flutter analyze` - 0 issues) and expand unit tests to 14/14 passing tests ([mesh_x_app/test/unit_test.dart](mesh_x_app/test/unit_test.dart)).
+
+---
+
 ## 4. Key Architecture Decisions (ADR Summary)
 
 1. **Firmware Toolchain**:
@@ -130,6 +144,9 @@
 4. **State Management & UI**:
    - Flutter with Riverpod for unidirectional state flow.
    - Dark-first aesthetic with strict token architecture, 44x44px touch targets, and offline-first state handling.
+5. **Emergency SOS Wire Specification**:
+   - Outbound BLE `cmdSubmitSos` (`0x14`): `[PACKET_ID: 4B][LAT_E7: 4B (int32)][LON_E7: 4B (int32)][TEXT]`.
+   - Highest priority flood broadcast (`destNode = 0xFFFFFFFF`, `ttl = 3`).
 
 ---
 
@@ -147,7 +164,6 @@
 
 ## 6. Next Immediate Milestone
 Upon receipt of approval:
-- Proceed directly to **Phase 7: Advanced Features (SOS, Telemetry, Diagnostics)**.
-- Implement SOS emergency broadcast composer with confirmation safety countdown.
-- Attach GPS location coordinates to emergency distress beacons (when permitted).
-- Battery voltage monitoring and detailed radio health diagnostics screen.
+- Proceed directly to **Phase 8: Release Engineering, Airtime Audit & Hardening**.
+- Perform end-to-end airtime and duty cycle analysis.
+- Final code cleanup, production build validation, and documentation sign-off.

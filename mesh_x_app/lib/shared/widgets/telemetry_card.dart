@@ -65,16 +65,34 @@ class TelemetryCard extends StatelessWidget {
               _buildMetric('Uptime', '${deviceInfo.uptimeSec}s', Icons.timer_outlined),
             ],
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildMetric(
+                'Battery',
+                '${deviceInfo.batteryPercentage}% (${deviceInfo.batteryVoltage.toStringAsFixed(2)}V)',
+                deviceInfo.batteryPercentage > 50
+                    ? Icons.battery_charging_full
+                    : (deviceInfo.batteryPercentage > 20
+                        ? Icons.battery_5_bar
+                        : Icons.battery_alert),
+                iconColor: deviceInfo.batteryPercentage > 20
+                    ? AppColors.success
+                    : AppColors.error,
+              ),
+              _buildMetric('Tx Queue', '${deviceInfo.queueDepth} pkts', Icons.queue_play_next),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildMetric(String label, String value, IconData icon) {
+  Widget _buildMetric(String label, String value, IconData icon, {Color? iconColor}) {
     return Expanded(
       child: Row(
         children: [
-          Icon(icon, size: 18, color: AppColors.textMuted),
+          Icon(icon, size: 18, color: iconColor ?? AppColors.textMuted),
           const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,

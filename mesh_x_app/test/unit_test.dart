@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:mesh_x_app/core/constants/ble_constants.dart';
@@ -8,6 +9,7 @@ import 'package:mesh_x_app/features/device/domain/device_info_model.dart';
 import 'package:mesh_x_app/features/chat/domain/message_model.dart';
 import 'package:mesh_x_app/features/chat/domain/conversation_model.dart';
 import 'package:mesh_x_app/features/mesh/domain/mesh_node_model.dart';
+import 'package:mesh_x_app/features/sos/domain/sos_alert_model.dart';
 
 void main() {
   group('MESH-X Core Protocol & Domain Unit Tests', () {
@@ -243,6 +245,99 @@ void main() {
         () => bob.decryptPayload(wireBytes: tampered, peerPublicKeyHex: alicePub),
         throwsA(anything),
       );
+    });
+
+    test('MeshXDeviceInfo parses battery voltage and computes percentage', () {
+      final json1 = {
+        'node_id': 0x12345678,
+        'fw': '1.3.0',
+        'proto': 1,
+        'name': 'MESH-X-345678',
+        'batt': 4200,
+      };
+      final dev1 = MeshXDeviceInfo.fromJson(json1);
+      expect(dev1.batteryMv, equals(4200));
+      expect(dev1.batteryVoltage, equals(4.2));
+      expect(dev1.batteryPercentage, equals(100));
+
+      final json2 = {
+        'node_id': 0x12345678,
+        'batt': 3900,
+      };
+      final dev2 = MeshXDeviceInfo.fromJson(json2);
+      expect(dev2.batteryVoltage, equals(3.9));
+      expect(dev2.batteryPercentage, equals(50));
+
+      final json3 = {
+        'node_id': 0x12345678,
+        'batt': 3500,
+      };
+      final dev3 = MeshXDeviceInfo.fromJson(json3);
+      expect(dev3.batteryPercentage, equals(0));
+    });
+
+    test('SosAlertModel serialization and location helpers behave correctly', () {
+      const alert = SosAlertModel(
+        packetId: 0x55AA1122,
+        senderNodeId: 0xA1B2C3D4,
+        latitude: 23.7749123,
+        longitude: 90.3995456,
+        distressMessage: '🚑 Medical Emergency - Injured hiker',
+        timestamp: 1700000000,
+        rssi: -65,
+        snr: 10.2,
+      );
+
+      expect(alert.formattedNodeHex, equals('0xA1B2C3D4'));
+      expect(alert.hasLocation, isTrue);
+      expect(alert.locationString, equals('23.77491, 90.39955'));
+
+      final map = alert.toMap();
+      expect(map['packet_id'], equals(0x55AA1122));
+      expect(map['sender_node_id'], equals(0xA1B2C3D4));
+      expect(map['distress_message'], contains('Medical Emergency'));
+
+      final fromMap = SosAlertModel.fromMap(map);
+      expect(fromMap, equals(alert));
+
+      const noLocAlert = SosAlertModel(
+        packetId: 1,
+        senderNodeId: 0x11111111,
+        distressMessage: 'Distress without GPS',
+        timestamp: 1700000000,
+      );
+      expect(noLocAlert.hasLocation, isFalse);
+      expect(noLocAlert.locationString, equals('No GPS Location Attached'));
+    });
+
+    test('Emergency SOS wire format encodes and decodes micro-degree E7 coordinates', () {
+      const packetId = 0x1234ABCD;
+      const lat = 23.7749123;
+      const lon = 90.3995456;
+      const distressText = 'Search & Rescue needed';
+
+      // Encode wire payload: [PACKET_ID: 4B][LAT_E7: 4B][LON_E7: 4B][TEXT]
+      final textBytes = Uint8List.fromList(utf8.encode(distressText));
+      final wireBytes = Uint8List(4 + 4 + 4 + textBytes.length);
+      final bd = ByteData.sublistView(wireBytes);
+      bd.setUint32(0, packetId, Endian.little);
+      bd.setInt32(4, (lat * 10000000).round(), Endian.little);
+      bd.setInt32(8, (lon * 10000000).round(), Endian.little);
+      wireBytes.setRange(12, 12 + textBytes.length, textBytes);
+
+      expect(wireBytes.length, equals(12 + distressText.length));
+
+      // Decode wire payload on receiver
+      final rxBd = ByteData.sublistView(wireBytes);
+      final rxPktId = rxBd.getUint32(0, Endian.little);
+      final rxLatE7 = rxBd.getInt32(4, Endian.little);
+      final rxLonE7 = rxBd.getInt32(8, Endian.little);
+      final rxText = utf8.decode(wireBytes.sublist(12));
+
+      expect(rxPktId, equals(packetId));
+      expect(rxLatE7 / 10000000.0, closeTo(lat, 0.0000001));
+      expect(rxLonE7 / 10000000.0, closeTo(lon, 0.0000001));
+      expect(rxText, equals(distressText));
     });
   });
 }

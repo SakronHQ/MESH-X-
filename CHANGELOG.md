@@ -4,6 +4,19 @@ All notable changes to the MESH-X project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0-phase7] - 2026-10-12
+### Added
+- Integrated `geolocator` for satellite GPS location acquisition in offline distress beacons.
+- Created `SosAlertModel` with micro-degree E7 coordinates encoding, validation, and location helpers.
+- Added `CMD_SUBMIT_SOS` (`0x14`), `OTA_PKT_SOS` (`0x04`), and `OTA_FLAG_SOS` (`0x08`) to ESP32 firmware.
+- Added real-time LiPo battery voltage (`batteryMv`) monitoring to firmware telemetry JSON.
+- Built `SosComposerDialog` with emergency category presets, live GPS satellite coordinate acquisition, and a 3-second hold-to-send safety trigger.
+- Built `SosAlertBanner` featuring glowing emergency indicators, sender node ID, distress text, GPS coordinates copying, and dismiss trigger.
+- Added emergency beacon action button to `ConversationListScreen` AppBar and dynamic SOS alert banner.
+- Updated `TelemetryCard` and `DeviceDashboardScreen` with a battery gauge (voltage and percentage calculation) and transmission queue depth.
+- Recompiled ESP32 firmware with `arduino-cli` (Exit code: 0, 89% flash, 13% RAM).
+- Passed `flutter analyze` (0 issues) and expanded unit test suite to 14/14 passing tests (`dart test`).
+
 ## [0.7.0-phase6] - 2026-10-12
 ### Added
 - Integrated `cryptography` and `qr_flutter` libraries for end-to-end encryption.
