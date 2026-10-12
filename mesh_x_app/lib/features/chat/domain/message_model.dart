@@ -32,6 +32,7 @@ class MessageModel {
   final String textContent;
   final MessageDeliveryStatus deliveryStatus;
   final bool isIncoming;
+  final bool isEncrypted;
   final int retryCount;
   final int? rssi;
   final double? snr;
@@ -48,6 +49,7 @@ class MessageModel {
     required this.textContent,
     required this.deliveryStatus,
     required this.isIncoming,
+    this.isEncrypted = false,
     this.retryCount = 0,
     this.rssi,
     this.snr,
@@ -65,6 +67,7 @@ class MessageModel {
     String? textContent,
     MessageDeliveryStatus? deliveryStatus,
     bool? isIncoming,
+    bool? isEncrypted,
     int? retryCount,
     int? rssi,
     double? snr,
@@ -81,6 +84,7 @@ class MessageModel {
       textContent: textContent ?? this.textContent,
       deliveryStatus: deliveryStatus ?? this.deliveryStatus,
       isIncoming: isIncoming ?? this.isIncoming,
+      isEncrypted: isEncrypted ?? this.isEncrypted,
       retryCount: retryCount ?? this.retryCount,
       rssi: rssi ?? this.rssi,
       snr: snr ?? this.snr,
@@ -100,6 +104,7 @@ class MessageModel {
       'text_content': textContent,
       'delivery_status': deliveryStatus.toDbString(),
       'is_incoming': isIncoming ? 1 : 0,
+      'is_encrypted': isEncrypted ? 1 : 0,
       'retry_count': retryCount,
       'rssi': rssi,
       'snr': snr,
@@ -119,6 +124,7 @@ class MessageModel {
       textContent: map['text_content'] as String,
       deliveryStatus: MessageDeliveryStatus.fromString(map['delivery_status'] as String),
       isIncoming: (map['is_incoming'] as int) == 1,
+      isEncrypted: (map['is_encrypted'] as int? ?? 0) == 1,
       retryCount: map['retry_count'] as int? ?? 0,
       rssi: map['rssi'] as int?,
       snr: (map['snr'] as num?)?.toDouble(),

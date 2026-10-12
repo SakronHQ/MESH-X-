@@ -6,6 +6,7 @@ import '../../device/domain/connection_state.dart';
 import '../../device/presentation/ble_controller.dart';
 import '../domain/conversation_model.dart';
 import '../domain/message_model.dart';
+import '../../mesh/presentation/key_exchange_dialog.dart';
 import 'chat_controller.dart';
 
 class ChatConversationScreen extends ConsumerStatefulWidget {
@@ -89,6 +90,33 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
           ],
         ),
         actions: [
+          if (widget.conversation.peerNodeId != 0xFFFFFFFF)
+            IconButton(
+              icon: FutureBuilder<String?>(
+                future: ref
+                    .watch(chatRepositoryProvider)
+                    .getPeerPublicKey(widget.conversation.peerNodeId),
+                builder: (context, snapshot) {
+                  final isPaired = snapshot.hasData &&
+                      snapshot.data != null &&
+                      snapshot.data!.length == 64;
+                  return Icon(
+                    isPaired ? Icons.lock : Icons.lock_open,
+                    color: isPaired ? AppColors.connected : AppColors.textMuted,
+                    size: 20,
+                  );
+                },
+              ),
+              tooltip: 'End-to-End Encryption Keys',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => KeyExchangeDialog(
+                    peerNodeId: widget.conversation.peerNodeId,
+                  ),
+                ).then((_) => setState(() {}));
+              },
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -196,6 +224,10 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                   _formatTime(msg.createdAt),
                   style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
                 ),
+                if (msg.isEncrypted) ...[
+                  const SizedBox(width: 4),
+                  const Icon(Icons.lock, size: 10, color: AppColors.connected),
+                ],
                 if (!isMe && msg.rssi != null) ...[
                   const SizedBox(width: 8),
                   Text(

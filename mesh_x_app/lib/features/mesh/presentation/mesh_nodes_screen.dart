@@ -5,6 +5,7 @@ import '../../chat/presentation/chat_controller.dart';
 import '../../chat/presentation/chat_conversation_screen.dart';
 import '../../device/presentation/ble_controller.dart';
 import '../domain/mesh_node_model.dart';
+import 'key_exchange_dialog.dart';
 
 class MeshNodesScreen extends ConsumerWidget {
   const MeshNodesScreen({super.key});
@@ -19,6 +20,14 @@ class MeshNodesScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Mesh Topology & Nodes'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.qr_code, color: AppColors.accent),
+            tooltip: 'My Identity & Keys',
+            onPressed: () => showDialog(
+              context: context,
+              builder: (_) => const KeyExchangeDialog(),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh Nodes',
@@ -291,6 +300,31 @@ class MeshNodesScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
+                    if (node.hasPublicKey) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.connected.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.lock, size: 9, color: AppColors.connected),
+                            SizedBox(width: 3),
+                            Text(
+                              'E2EE',
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.connected,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -327,6 +361,23 @@ class MeshNodesScreen extends ConsumerWidget {
               ],
             ),
           ),
+
+          // Key Pairing Button
+          IconButton(
+            icon: Icon(
+              node.hasPublicKey ? Icons.shield : Icons.key_outlined,
+              size: 18,
+              color: node.hasPublicKey ? AppColors.connected : AppColors.textMuted,
+            ),
+            tooltip: node.hasPublicKey ? 'Key Verified (E2EE Active)' : 'Pair E2EE Key',
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (_) => KeyExchangeDialog(peerNodeId: node.nodeId),
+              );
+            },
+          ),
+          const SizedBox(width: 6),
 
           // Chat Button
           FilledButton.tonal(

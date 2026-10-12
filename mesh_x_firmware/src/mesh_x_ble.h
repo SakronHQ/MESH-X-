@@ -178,19 +178,26 @@ public:
     return sendEvent(EVT_TX_STATUS, seqNum, payload, sizeof(payload));
   }
 
-  bool sendRxMessage(uint32_t srcNode, const String& text, float rssi, float snr) {
+  bool sendRxMessage(uint32_t srcNode, uint8_t flags, const uint8_t* msgBytes, size_t msgLen, float rssi, float snr) {
     if (!m_deviceConnected) return false;
-    size_t textLen = text.length();
-    size_t payloadLen = 4 + 1 + 1 + textLen;
+    size_t payloadLen = 4 + 1 + 1 + 1 + msgLen;
+    if (payloadLen > BLE_MAX_PAYLOAD_SIZE) return false;
     uint8_t payload[BLE_MAX_PAYLOAD_SIZE];
 
     memcpy(payload, &srcNode, 4);
     payload[4] = (int8_t)rssi;
     payload[5] = (int8_t)snr;
-    memcpy(payload + 6, text.c_str(), textLen);
+    payload[6] = flags;
+    if (msgLen > 0 && msgBytes != nullptr) {
+      memcpy(payload + 7, msgBytes, msgLen);
+    }
 
     m_outboundSeq++;
     return sendEvent(EVT_RX_MESSAGE, m_outboundSeq, payload, payloadLen);
+  }
+
+  bool sendRxMessage(uint32_t srcNode, const String& text, float rssi, float snr) {
+    return sendRxMessage(srcNode, 0, (const uint8_t*)text.c_str(), text.length(), rssi, snr);
   }
 
   bool sendNodeDiscovered(uint32_t nodeId, uint8_t hops, float rssi, float snr) {

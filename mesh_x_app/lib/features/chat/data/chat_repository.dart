@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/constants/ble_constants.dart';
+import '../../../core/security/crypto_service.dart';
+import '../../../core/security/preferences_key_storage.dart';
 import '../../../data/database/app_database.dart';
 import '../../device/data/ble_repository.dart';
 import '../../mesh/domain/mesh_node_model.dart';
@@ -13,6 +15,7 @@ import '../domain/message_model.dart';
 
 class ChatRepository {
   final BleRepository _bleRepository;
+  final CryptoService _cryptoService;
   final _uuid = const Uuid();
   StreamSubscription<List<int>>? _bleEventSubscription;
 
@@ -29,7 +32,11 @@ class ChatRepository {
       StreamController<List<MeshNodeModel>>.broadcast();
   Stream<List<MeshNodeModel>> get nodesStream => _nodesStreamController.stream;
 
-  ChatRepository(this._bleRepository) {
+  ChatRepository(
+    this._bleRepository, [
+    CryptoService? cryptoService,
+  ]) : _cryptoService =
+            cryptoService ?? CryptoService(SharedPreferencesKeyStorage()) {
     _initEventListener();
   }
 
@@ -38,6 +45,8 @@ class ChatRepository {
       _handleBleEvent(rawFrame);
     });
   }
+
+  CryptoService get cryptoService => _cryptoService;
 
   Future<List<ConversationModel>> getConversations() async {
     final db = await AppDatabase.instance;
@@ -66,6 +75,36 @@ class ChatRepository {
       orderBy: 'last_seen_at DESC',
     );
     return maps.map((m) => MeshNodeModel.fromMap(m)).toList();
+  }
+
+  Future<void> setPeerPublicKey(int nodeId, String pubKeyHex,
+      {bool isVerified = true}) async {
+    final db = await AppDatabase.instance;
+    await db.update(
+      'nodes',
+      {
+        'public_key': pubKeyHex,
+        'is_verified': isVerified ? 1 : 0,
+      },
+      where: 'node_id = ?',
+      whereArgs: [nodeId],
+    );
+    final nodes = await getDiscoveredNodes();
+    _nodesStreamController.add(nodes);
+  }
+
+  Future<String?> getPeerPublicKey(int nodeId) async {
+    final db = await AppDatabase.instance;
+    final res = await db.query(
+      'nodes',
+      columns: ['public_key'],
+      where: 'node_id = ?',
+      whereArgs: [nodeId],
+    );
+    if (res.isNotEmpty) {
+      return res.first['public_key'] as String?;
+    }
+    return null;
   }
 
   Future<ConversationModel> ensureConversationForNode(int nodeId) async {
@@ -111,6 +150,31 @@ class ChatRepository {
     final messageId = _uuid.v4();
     final packetId = Random().nextInt(0x7FFFFFFF); // 31-bit positive int
 
+    bool isEncrypted = false;
+    Uint8List wirePayload;
+    int flags = 0x01; // Default: Requires ACK flag
+
+    if (recipientNodeId != 0xFFFFFFFF) {
+      final peerKey = await getPeerPublicKey(recipientNodeId);
+      if (peerKey != null && peerKey.length == 64) {
+        try {
+          wirePayload = await _cryptoService.encryptPayload(
+            plaintext: textContent,
+            peerPublicKeyHex: peerKey,
+          );
+          flags = 0x03; // REQ_ACK (0x01) | FLAG_ENCRYPTED (0x02)
+          isEncrypted = true;
+        } catch (_) {
+          wirePayload = Uint8List.fromList(utf8.encode(textContent));
+        }
+      } else {
+        wirePayload = Uint8List.fromList(utf8.encode(textContent));
+      }
+    } else {
+      flags = 0x00; // Broadcast is cleartext
+      wirePayload = Uint8List.fromList(utf8.encode(textContent));
+    }
+
     final message = MessageModel(
       id: messageId,
       packetId: packetId,
@@ -120,6 +184,7 @@ class ChatRepository {
       textContent: textContent,
       deliveryStatus: MessageDeliveryStatus.queued,
       isIncoming: false,
+      isEncrypted: isEncrypted,
       createdAt: now,
     );
 
@@ -140,14 +205,13 @@ class ChatRepository {
 
     _notifyUpdates(conversationId);
 
-    // Package payload for BLE command: [PACKET_ID: 4B][DEST_NODE: 4B][FLAGS: 1B][TEXT]
-    final textBytes = utf8.encode(textContent);
-    final payload = Uint8List(4 + 4 + 1 + textBytes.length);
+    // Package payload for BLE command: [PACKET_ID: 4B][DEST_NODE: 4B][FLAGS: 1B][DATA]
+    final payload = Uint8List(4 + 4 + 1 + wirePayload.length);
     final bd = ByteData.sublistView(payload);
     bd.setUint32(0, packetId, Endian.little);
     bd.setUint32(4, recipientNodeId, Endian.little);
-    bd.setUint8(8, 0x01); // Requires ACK flag
-    payload.setRange(9, 9 + textBytes.length, textBytes);
+    bd.setUint8(8, flags);
+    payload.setRange(9, 9 + wirePayload.length, wirePayload);
 
     // Transmit over BLE Command characteristic
     await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
@@ -164,11 +228,38 @@ class ChatRepository {
     final msg = MessageModel.fromMap(maps.first);
     final updatedRetry = msg.retryCount + 1;
 
+    // Re-submit to BLE with encryption if peer key exists
+    bool isEncrypted = false;
+    Uint8List wirePayload;
+    int flags = 0x01;
+
+    if (msg.recipientNodeId != 0xFFFFFFFF) {
+      final peerKey = await getPeerPublicKey(msg.recipientNodeId);
+      if (peerKey != null && peerKey.length == 64) {
+        try {
+          wirePayload = await _cryptoService.encryptPayload(
+            plaintext: msg.textContent,
+            peerPublicKeyHex: peerKey,
+          );
+          flags = 0x03;
+          isEncrypted = true;
+        } catch (_) {
+          wirePayload = Uint8List.fromList(utf8.encode(msg.textContent));
+        }
+      } else {
+        wirePayload = Uint8List.fromList(utf8.encode(msg.textContent));
+      }
+    } else {
+      flags = 0x00;
+      wirePayload = Uint8List.fromList(utf8.encode(msg.textContent));
+    }
+
     await db.update(
       'messages',
       {
         'delivery_status': MessageDeliveryStatus.queued.toDbString(),
         'retry_count': updatedRetry,
+        'is_encrypted': isEncrypted ? 1 : 0,
       },
       where: 'id = ?',
       whereArgs: [messageId],
@@ -176,14 +267,12 @@ class ChatRepository {
 
     _notifyUpdates(msg.conversationId);
 
-    // Re-submit to BLE
-    final textBytes = utf8.encode(msg.textContent);
-    final payload = Uint8List(4 + 4 + 1 + textBytes.length);
+    final payload = Uint8List(4 + 4 + 1 + wirePayload.length);
     final bd = ByteData.sublistView(payload);
     bd.setUint32(0, msg.packetId, Endian.little);
     bd.setUint32(4, msg.recipientNodeId, Endian.little);
-    bd.setUint8(8, 0x01);
-    payload.setRange(9, 9 + textBytes.length, textBytes);
+    bd.setUint8(8, flags);
+    payload.setRange(9, 9 + wirePayload.length, wirePayload);
 
     await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
   }
@@ -197,14 +286,35 @@ class ChatRepository {
     final db = await AppDatabase.instance;
 
     // 1. Inbound Received LoRa Message: EVT_RX_MESSAGE (0x80)
-    // Payload: [SRC_NODE: 4B][RSSI: 1B (int8)][SNR: 1B (int8)][TEXT]
-    if (eventType == BleConstants.evtRxMessage && payload.length >= 6) {
+    // Payload: [SRC_NODE: 4B][RSSI: 1B (int8)][SNR: 1B (int8)][FLAGS: 1B][DATA]
+    if (eventType == BleConstants.evtRxMessage && payload.length >= 7) {
       final bd = ByteData.sublistView(payload);
       final srcNode = bd.getUint32(0, Endian.little);
       final rssi = bd.getInt8(4);
       final snr = bd.getInt8(5).toDouble();
-      final text = utf8.decode(payload.sublist(6));
+      final flags = bd.getUint8(6);
+      final rawMsg = payload.sublist(7);
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final isEncrypted = (flags & 0x02) != 0;
+
+      String text;
+      if (isEncrypted) {
+        final peerKey = await getPeerPublicKey(srcNode);
+        if (peerKey != null && peerKey.length == 64) {
+          try {
+            text = await _cryptoService.decryptPayload(
+              wireBytes: rawMsg,
+              peerPublicKeyHex: peerKey,
+            );
+          } catch (_) {
+            text = '🔒 [Decryption failed / MAC verification mismatch]';
+          }
+        } else {
+          text = '🔒 [Encrypted message - Contact key not paired]';
+        }
+      } else {
+        text = utf8.decode(rawMsg);
+      }
 
       final convId =
           '0x${srcNode.toRadixString(16).padLeft(8, '0').toUpperCase()}';
@@ -243,6 +353,7 @@ class ChatRepository {
         textContent: text,
         deliveryStatus: MessageDeliveryStatus.delivered,
         isIncoming: true,
+        isEncrypted: isEncrypted,
         rssi: rssi,
         snr: snr,
         createdAt: now,
@@ -320,6 +431,15 @@ class ChatRepository {
       final snr = bd.getInt8(6).toDouble();
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
+      // Preserve existing public_key and is_verified if already set
+      final existingNode = await db.query('nodes', where: 'node_id = ?', whereArgs: [nodeId]);
+      String? pubKey;
+      int isVerified = 0;
+      if (existingNode.isNotEmpty) {
+        pubKey = existingNode.first['public_key'] as String?;
+        isVerified = (existingNode.first['is_verified'] as int?) ?? 0;
+      }
+
       await db.insert(
         'nodes',
         {
@@ -330,6 +450,8 @@ class ChatRepository {
           'last_rssi': rssi,
           'last_snr': snr,
           'last_seen_at': now,
+          'public_key': pubKey,
+          'is_verified': isVerified,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );

@@ -4,6 +4,19 @@ All notable changes to the MESH-X project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0-phase6] - 2026-10-12
+### Added
+- Integrated `cryptography` and `qr_flutter` libraries for end-to-end encryption.
+- Built `CryptoService` providing X25519 (Curve25519) keypair generation, public fingerprint formatting, and pluggable key storage.
+- Implemented authenticated symmetric payload encryption with ChaCha20-Poly1305 AEAD and replay-protection timestamp headers.
+- Updated ESP32 firmware (`mesh_x_ble.h` and `main.ino`) to pass raw encrypted wire payloads and packet flags (`OTA_FLAG_ENCRYPTED = 0x02`).
+- Recompiled firmware with `arduino-cli` (Exit code: 0, 89% flash, 13% RAM).
+- Upgraded SQLite database to version 3 adding `public_key` and `is_verified` to `nodes`, and `is_encrypted` to `messages`.
+- Updated `ChatRepository` to automatically encrypt outbound messages when peer public key is known, and authenticate & decrypt inbound frames.
+- Built `KeyExchangeDialog` featuring QR code sharing, fingerprint display, key copying, and contact public key activation.
+- Added real-time E2EE status indicators in `ChatConversationScreen` and `MeshNodesScreen`.
+- Passed `flutter analyze` (0 issues) and expanded unit test suite to 11/11 passing tests (`dart test`).
+
 ## [0.6.0-phase5] - 2026-10-12
 ### Added
 - Implemented `MeshRouter` inline C++ header with a 64-entry LRU ring buffer for duplicate packet suppression and neighbor table tracking.

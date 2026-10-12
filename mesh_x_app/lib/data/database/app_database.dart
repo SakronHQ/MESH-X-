@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static Database? _instance;
   static const String _dbName = 'mesh_x_local.db';
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 3;
 
   static Future<Database> get instance async {
     if (_instance != null) return _instance!;
@@ -44,6 +44,7 @@ class AppDatabase {
             text_content TEXT NOT NULL,
             delivery_status TEXT NOT NULL,
             is_incoming INTEGER NOT NULL,
+            is_encrypted INTEGER DEFAULT 0,
             retry_count INTEGER DEFAULT 0,
             rssi INTEGER,
             snr REAL,
@@ -61,7 +62,9 @@ class AppDatabase {
             hop_distance INTEGER DEFAULT 1,
             last_rssi INTEGER,
             last_snr REAL,
-            last_seen_at INTEGER NOT NULL
+            last_seen_at INTEGER NOT NULL,
+            public_key TEXT,
+            is_verified INTEGER DEFAULT 0
           );
         ''');
 
@@ -91,9 +94,23 @@ class AppDatabase {
               hop_distance INTEGER DEFAULT 1,
               last_rssi INTEGER,
               last_snr REAL,
-              last_seen_at INTEGER NOT NULL
+              last_seen_at INTEGER NOT NULL,
+              public_key TEXT,
+              is_verified INTEGER DEFAULT 0
             );
           ''');
+        }
+        if (oldVersion < 3) {
+          // Add crypto columns if migrating from version 2
+          try {
+            await db.execute('ALTER TABLE nodes ADD COLUMN public_key TEXT;');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE nodes ADD COLUMN is_verified INTEGER DEFAULT 0;');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE messages ADD COLUMN is_encrypted INTEGER DEFAULT 0;');
+          } catch (_) {}
         }
       },
     );

@@ -5,6 +5,8 @@ class MeshNodeModel {
   final int lastRssi;
   final double lastSnr;
   final int lastSeenAt;
+  final String? publicKey;
+  final bool isVerified;
 
   const MeshNodeModel({
     required this.nodeId,
@@ -13,12 +15,22 @@ class MeshNodeModel {
     required this.lastRssi,
     required this.lastSnr,
     required this.lastSeenAt,
+    this.publicKey,
+    this.isVerified = false,
   });
 
   String get formattedNodeHex =>
       '0x${nodeId.toRadixString(16).padLeft(8, '0').toUpperCase()}';
 
   bool get isDirectNeighbor => hopDistance <= 1;
+
+  bool get hasPublicKey => publicKey != null && publicKey!.isNotEmpty;
+
+  String get fingerprint {
+    if (!hasPublicKey || publicKey!.length < 16) return 'UNVERIFIED';
+    final upper = publicKey!.toUpperCase();
+    return '${upper.substring(0, 4)}:${upper.substring(4, 8)}:${upper.substring(8, 12)}:${upper.substring(12, 16)}';
+  }
 
   String get relativeLastSeen {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -36,6 +48,8 @@ class MeshNodeModel {
     int? lastRssi,
     double? lastSnr,
     int? lastSeenAt,
+    String? publicKey,
+    bool? isVerified,
   }) {
     return MeshNodeModel(
       nodeId: nodeId ?? this.nodeId,
@@ -44,6 +58,8 @@ class MeshNodeModel {
       lastRssi: lastRssi ?? this.lastRssi,
       lastSnr: lastSnr ?? this.lastSnr,
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+      publicKey: publicKey ?? this.publicKey,
+      isVerified: isVerified ?? this.isVerified,
     );
   }
 
@@ -55,6 +71,8 @@ class MeshNodeModel {
       'last_rssi': lastRssi,
       'last_snr': lastSnr,
       'last_seen_at': lastSeenAt,
+      'public_key': publicKey,
+      'is_verified': isVerified ? 1 : 0,
     };
   }
 
@@ -67,6 +85,8 @@ class MeshNodeModel {
       lastRssi: (map['last_rssi'] as int?) ?? -100,
       lastSnr: (map['last_snr'] as num?)?.toDouble() ?? 0.0,
       lastSeenAt: map['last_seen_at'] as int,
+      publicKey: map['public_key'] as String?,
+      isVerified: (map['is_verified'] as int? ?? 0) == 1,
     );
   }
 
@@ -80,7 +100,9 @@ class MeshNodeModel {
           hopDistance == other.hopDistance &&
           lastRssi == other.lastRssi &&
           lastSnr == other.lastSnr &&
-          lastSeenAt == other.lastSeenAt;
+          lastSeenAt == other.lastSeenAt &&
+          publicKey == other.publicKey &&
+          isVerified == other.isVerified;
 
   @override
   int get hashCode =>
@@ -89,5 +111,7 @@ class MeshNodeModel {
       hopDistance.hashCode ^
       lastRssi.hashCode ^
       lastSnr.hashCode ^
-      lastSeenAt.hashCode;
+      lastSeenAt.hashCode ^
+      publicKey.hashCode ^
+      isVerified.hashCode;
 }

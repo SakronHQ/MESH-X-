@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:mesh_x_app/core/constants/ble_constants.dart';
+import 'package:mesh_x_app/core/security/crypto_service.dart';
 import 'package:mesh_x_app/core/utils/crc16.dart';
 import 'package:mesh_x_app/features/device/domain/connection_state.dart';
 import 'package:mesh_x_app/features/device/domain/device_info_model.dart';
@@ -68,16 +69,19 @@ void main() {
         textContent: 'Hello over LoRa mesh!',
         deliveryStatus: MessageDeliveryStatus.queued,
         isIncoming: false,
+        isEncrypted: true,
         createdAt: 1700000000,
       );
 
       final map = msg.toMap();
       expect(map['delivery_status'], equals('QUEUED'));
       expect(map['is_incoming'], equals(0));
+      expect(map['is_encrypted'], equals(1));
 
       final restored = MessageModel.fromMap(map);
       expect(restored.id, equals('msg-1234'));
       expect(restored.deliveryStatus, equals(MessageDeliveryStatus.queued));
+      expect(restored.isEncrypted, isTrue);
 
       final delivered =
           restored.copyWith(deliveryStatus: MessageDeliveryStatus.delivered);
@@ -115,10 +119,14 @@ void main() {
         lastRssi: -72,
         lastSnr: 8.5,
         lastSeenAt: now,
+        publicKey: '0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF',
+        isVerified: true,
       );
 
       expect(directNode.formattedNodeHex, equals('0xDEADBEEF'));
       expect(directNode.isDirectNeighbor, isTrue);
+      expect(directNode.hasPublicKey, isTrue);
+      expect(directNode.fingerprint, equals('0123:4567:89AB:CDEF'));
       expect(directNode.relativeLastSeen, equals('Just now'));
 
       final multiHopNode = directNode.copyWith(hopDistance: 3);
@@ -126,10 +134,15 @@ void main() {
       expect(multiHopNode.hopDistance, equals(3));
 
       final map = directNode.toMap();
+      expect(map['public_key'], equals('0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF'));
+      expect(map['is_verified'], equals(1));
+
       final fromDb = MeshNodeModel.fromMap(map);
       expect(fromDb.nodeId, equals(0xDEADBEEF));
       expect(fromDb.lastRssi, equals(-72));
       expect(fromDb.lastSnr, equals(8.5));
+      expect(fromDb.hasPublicKey, isTrue);
+      expect(fromDb.isVerified, isTrue);
     });
 
     test('Mesh Router 64-entry LRU ring buffer suppresses duplicates', () {
@@ -176,6 +189,60 @@ void main() {
       ttl = 1;
       canRelay = ttl > 1;
       expect(canRelay, isFalse);
+    });
+
+    test('E2EE CryptoService generates keypair, encrypts and decrypts with ChaCha20-Poly1305', () async {
+      final alice = CryptoService(MemoryKeyStorage());
+      await alice.init();
+      final alicePub = await alice.getMyPublicKeyHex();
+      final aliceFingerprint = await alice.getMyFingerprint();
+
+      expect(alicePub.length, equals(64));
+      expect(aliceFingerprint.split(':').length, equals(4));
+
+      final bob = CryptoService(MemoryKeyStorage());
+      await bob.init();
+      final bobPub = await bob.getMyPublicKeyHex();
+
+      const secretMsg = 'Confidential RF Mesh Packet 123';
+      final ciphertext = await alice.encryptPayload(
+        plaintext: secretMsg,
+        peerPublicKeyHex: bobPub,
+      );
+
+      // Verify wire payload format: Nonce (12B) + Timestamp (4B) + Ciphertext + Poly1305 MAC (16B)
+      expect(ciphertext.length, greaterThan(secretMsg.length + 28));
+
+      // Bob decrypts
+      final decrypted = await bob.decryptPayload(
+        wireBytes: ciphertext,
+        peerPublicKeyHex: alicePub,
+      );
+      expect(decrypted, equals(secretMsg));
+    });
+
+    test('E2EE CryptoService detects packet tampering via Poly1305 authentication failure', () async {
+      final alice = CryptoService(MemoryKeyStorage());
+      await alice.init();
+      final alicePub = await alice.getMyPublicKeyHex();
+
+      final bob = CryptoService(MemoryKeyStorage());
+      await bob.init();
+      final bobPub = await bob.getMyPublicKeyHex();
+
+      final ciphertext = await alice.encryptPayload(
+        plaintext: 'Tamper proof message',
+        peerPublicKeyHex: bobPub,
+      );
+
+      // Alter one byte in ciphertext
+      final tampered = List<int>.from(ciphertext);
+      tampered[14] ^= 0x55;
+
+      expect(
+        () => bob.decryptPayload(wireBytes: tampered, peerPublicKeyHex: alicePub),
+        throwsA(anything),
+      );
     });
   });
 }

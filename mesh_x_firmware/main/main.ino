@@ -254,7 +254,7 @@ void setup() {
 
   // 3. Initialize BLE GATT Server
   ble.onMessageSubmitted(onMobileMessageSubmitted);
-  ble.begin(g_localNodeId, "1.1.0");
+  ble.begin(g_localNodeId, "1.2.0");
   Serial.println(F("[INIT] BLE, LoRa Radio and Mesh Router initialized.\n"));
 }
 
@@ -311,7 +311,7 @@ void loop() {
                   }
 
                   // Bridge to connected mobile phone via BLE Event Out notification
-                  ble.sendRxMessage(hdr->srcNode, text, rssi, snr);
+                  ble.sendRxMessage(hdr->srcNode, hdr->flags, rxBuffer + sizeof(OtaPacketHeader), hdr->payloadLen, rssi, snr);
 
                 } else if (hdr->packetType == OTA_PKT_ACK) {
                   Serial.printf("[LORA RX ACK] Received Delivery ACK for Packet ID 0x%08X\n", (unsigned int)hdr->packetId);
@@ -327,7 +327,7 @@ void loop() {
                   }
 
                   Serial.printf("[LORA RX BCAST] From 0x%08X: \"%s\"\n", (unsigned int)hdr->srcNode, text.c_str());
-                  ble.sendRxMessage(hdr->srcNode, text, rssi, snr);
+                  ble.sendRxMessage(hdr->srcNode, hdr->flags, rxBuffer + sizeof(OtaPacketHeader), hdr->payloadLen, rssi, snr);
                 } else if (hdr->packetType == OTA_PKT_NODE_ANNOUNCE) {
                   Serial.printf("[LORA RX ANNOUNCE] Node 0x%08X discovered (Hops: %u, RSSI: %.1f)\n",
                     (unsigned int)hdr->srcNode, calculatedHops, rssi);

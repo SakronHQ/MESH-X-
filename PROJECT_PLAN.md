@@ -4,8 +4,8 @@
 - **Project**: MESH-X (Offline LoRa Mesh Messaging Ecosystem)
 - **Target Microcontroller**: ESP32 DevKit V1 (ESP-WROOM-32)
 - **Target Transceiver**: SX1278 RA-02 (433 MHz)
-- **Mobile Stack**: Flutter (Riverpod, SQLite, flutter_blue_plus)
-- **Current Protocol Version**: `v1.1.0`
+- **Mobile Stack**: Flutter (Riverpod, SQLite, flutter_blue_plus, cryptography)
+- **Current Protocol Version**: `v1.2.0`
 
 ---
 
@@ -19,7 +19,7 @@
 | **Phase 3** | **Flutter App Foundation, BLE Manager & UI System** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 4** | **Direct Messaging MVP (Phone A ↔ LoRa ↔ Phone B)** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 5** | **Multi-Hop Mesh Routing & Deduplication** | **COMPLETED & VERIFIED** | 2026-10-12 |
-| **Phase 6** | End-to-End Cryptography & Authenticated Pairing | QUEUED | — |
+| **Phase 6** | **End-to-End Cryptography & Authenticated Pairing** | **COMPLETED & VERIFIED** | 2026-10-12 |
 | **Phase 7** | Advanced Features (SOS, Telemetry, Diagnostics) | QUEUED | — |
 | **Phase 8** | Release Engineering, Airtime Audit & Verification | QUEUED | — |
 
@@ -101,23 +101,35 @@
 
 ---
 
+## 3.6 Phase 6 Deliverables & Checklist
+- [x] Implement client-side `CryptoService` ([mesh_x_app/lib/core/security/crypto_service.dart](mesh_x_app/lib/core/security/crypto_service.dart)) providing X25519 keypair generation, fingerprint derivation, and pluggable key storage.
+- [x] Implement ChaCha20-Poly1305 AEAD payload encryption with 12-byte nonce, 16-byte Poly1305 MAC, and 4-byte replay-protection timestamp headers.
+- [x] Update ESP32 BLE GATT and Radio firmware ([mesh_x_firmware/src/mesh_x_ble.h](mesh_x_firmware/src/mesh_x_ble.h) and [mesh_x_firmware/main/main.ino](mesh_x_firmware/main/main.ino)) to pass raw encrypted wire payloads and packet flags (`OTA_FLAG_ENCRYPTED = 0x02`).
+- [x] Successfully recompiled firmware with `arduino-cli` (Exit code: 0, 89% flash, 13% RAM).
+- [x] Upgrade SQLite schema to version 3 adding `public_key` and `is_verified` to `nodes`, and `is_encrypted` to `messages`.
+- [x] Update `ChatRepository` to automatically encrypt outbound messages when peer public key is known, and decrypt inbound frames with Poly1305 tamper rejection.
+- [x] Build `KeyExchangeDialog` ([mesh_x_app/lib/features/mesh/presentation/key_exchange_dialog.dart](mesh_x_app/lib/features/mesh/presentation/key_exchange_dialog.dart)) featuring QR code sharing (`qr_flutter`), fingerprint display, key copying, and peer public key pairing.
+- [x] Add E2EE lock status button to `ChatConversationScreen` AppBar and lock icons to encrypted message bubbles.
+- [x] Add E2EE badges and key action triggers to `MeshNodesScreen`.
+- [x] Pass static analysis (`flutter analyze` - 0 issues) and unit test suite expanded to 11/11 passing tests ([mesh_x_app/test/unit_test.dart](mesh_x_app/test/unit_test.dart)).
+
+---
+
 ## 4. Key Architecture Decisions (ADR Summary)
 
 1. **Firmware Toolchain**:
    - `arduino-cli` with `esp32:esp32` (v3.3.8) core used for transparent, reproducible command-line compilation.
    - Radio library: `RadioLib` or dedicated SX127x SPI driver (clean, non-blocking, interrupt-driven via DIO0).
-2. **Custom Protocol vs. Meshtastic Compatibility**:
-   - MESH-X uses a custom binary protocol optimized for the RA-02 + ESP32 DevKit V1 hardware.
-   - Compatibility with third-party ecosystems is not presumed, avoiding proprietary bloat and brittle dependencies.
+2. **End-to-End Encryption Strategy**:
+   - Private keys never leave the mobile device.
+   - The ESP32 operates as a zero-knowledge radio relay and cannot read or decrypt private messages.
+   - Standard, modern cryptographic primitives: X25519 (Diffie-Hellman) + ChaCha20-Poly1305 (AEAD).
 3. **Multi-Hop Routing Architecture**:
    - 64-entry LRU circular buffer suppresses broadcast storm loops without dynamic memory allocation.
    - Hop budget bounded by default TTL = 3; random relay jitter (50–200ms) mitigates radio channel collisions.
 4. **State Management & UI**:
    - Flutter with Riverpod for unidirectional state flow.
    - Dark-first aesthetic with strict token architecture, 44x44px touch targets, and offline-first state handling.
-5. **Separation of Concerns**:
-   - Flutter never handles SPI or direct radio timings.
-   - ESP32 autonomously handles mesh packet relaying and deduplication even when the smartphone is disconnected.
 
 ---
 
@@ -128,14 +140,14 @@
 | **RA-02 Frequency Mismatch** | High | Medium | Verify module markings (433M vs 868M/915M) and crystal frequency before transmission. |
 | **Damage without Antenna** | Critical | High | Explicit safety gate in documentation: Never power TX without antenna connected. |
 | **3.3V Power Rail Dropouts** | High | Medium | Add 100µF decoupling capacitor near RA-02 VCC/GND pins if brownout resets occur. |
-| **BLE MTU Truncation** | Medium | High | Variable-length BLE framing with explicit reassembly header; never assume MTU > 20 bytes. |
 | **Airtime Saturation** | High | Medium | Enforce duty-cycle limits, SF9 / 125kHz bandwidth, and TTL <= 3 to prevent broadcast flooding. |
+| **Key Exchange Tampering** | Medium | Low | Out-of-band QR code verification and fingerprint checks prevent Man-in-the-Middle attacks. |
 
 ---
 
 ## 6. Next Immediate Milestone
 Upon receipt of approval:
-- Proceed directly to **Phase 6: Security & End-to-End Cryptography**.
-- Implement client-side Curve25519 / X25519 keypair generation and secure key storage.
-- Implement ChaCha20-Poly1305 authenticated encryption for direct peer messages.
-- QR code public key exchange and anti-replay sequence checking.
+- Proceed directly to **Phase 7: Advanced Features (SOS, Telemetry, Diagnostics)**.
+- Implement SOS emergency broadcast composer with confirmation safety countdown.
+- Attach GPS location coordinates to emergency distress beacons (when permitted).
+- Battery voltage monitoring and detailed radio health diagnostics screen.
