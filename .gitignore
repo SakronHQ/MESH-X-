@@ -1,0 +1,29 @@
+# General
+.DS_Store
+Thumbs.db
+*.log
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Arduino / Embedded Build outputs
+build/
+*.bin
+*.elf
+*.hex
+*.map
+.pio/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+mesh_x_app/build/
+mesh_x_app/.flutter-plugins
+mesh_x_app/.flutter-plugins-dependencies
+mesh_x_app/android/.gradle/
+mesh_x_app/android/local.properties
