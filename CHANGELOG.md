@@ -4,6 +4,14 @@ All notable changes to the MESH-X project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0-phase2] - 2026-10-12
+### Added
+- Created `mesh_x_firmware/src/mesh_x_protocol.h` defining 128-bit custom MESH-X GATT UUIDs, binary frame header, and CRC-16-CCITT algorithm.
+- Implemented modular `MeshXBLE` class in `mesh_x_firmware/src/mesh_x_ble.h` supporting Device Info, Command In, Event Out, and Telemetry characteristics.
+- Added command validation, binary CRC checking, command ACKs, and ping-pong responsiveness.
+- Created `mesh_x_firmware/test/ble_transport_test/ble_transport_test.ino` for end-to-end BLE transport testing.
+- Verified successful firmware compilation for `esp32:esp32:esp32doit-devkit-v1` with `arduino-cli`.
+
 ## [0.2.0-phase1] - 2026-10-12
 ### Added
 - Integrated `RadioLib@7.8.1` for SX1278 transceiver communication.

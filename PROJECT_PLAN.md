@@ -14,8 +14,8 @@
 | Phase | Description | Status | Sign-off Date |
 |---|---|---|---|
 | **Phase 0** | **Discovery, Architecture & Specifications** | **APPROVED** | 2026-10-12 |
-| **Phase 1** | **Hardware Radio Prototype (SX1278 SPI Ping-Pong)** | **IN PROGRESS (Firmware Built, Awaiting Hardware Test)** | — |
-| **Phase 2** | ESP32 BLE GATT Server & Transport Layer | QUEUED | — |
+| **Phase 1** | **Hardware Radio Prototype (SX1278 SPI Ping-Pong)** | **FIRMWARE READY (Awaiting Hardware Bench Run)** | 2026-10-12 |
+| **Phase 2** | **ESP32 BLE GATT Server & Transport Layer** | **IN PROGRESS (Firmware Built & Verified)** | — |
 | **Phase 3** | Flutter App Foundation, BLE Manager & UI System | QUEUED | — |
 | **Phase 4** | Direct Messaging MVP (Phone A ↔ LoRa ↔ Phone B) | QUEUED | — |
 | **Phase 5** | Multi-Hop Mesh Routing & Store-and-Forward | QUEUED | — |
@@ -48,6 +48,17 @@
 - [ ] Connect ESP32 DevKit V1 #1 and #2 via USB to PC.
 - [ ] Flash firmware to both nodes and run bidirectional RF ping-pong test.
 - [ ] Verify RSSI/SNR metrics on Serial Monitor (115200 baud).
+
+---
+
+## 3.2 Phase 2 Deliverables & Checklist
+- [x] Define 128-bit MESH-X GATT UUIDs, binary frame header, and CRC-16-CCITT algorithm in [mesh_x_firmware/src/mesh_x_protocol.h](mesh_x_firmware/src/mesh_x_protocol.h).
+- [x] Implement complete BLE GATT server class `MeshXBLE` in [mesh_x_firmware/src/mesh_x_ble.h](mesh_x_firmware/src/mesh_x_ble.h) supporting Device Info (Read), Command In (Write), Event Out (Notify), and Telemetry (Read/Notify).
+- [x] Add command validation, CRC checking, ACK responses (`EVT_TX_STATUS`), `CMD_PING` / `EVT_PONG`, and error codes.
+- [x] Implement automatic advertising recovery on mobile disconnection.
+- [x] Create standalone Phase 2 test sketch [mesh_x_firmware/test/ble_transport_test/ble_transport_test.ino](mesh_x_firmware/test/ble_transport_test/ble_transport_test.ino).
+- [x] Compile and verify with `arduino-cli` (Exit code: 0, 83% flash, 12% RAM).
+- [ ] Connect ESP32 to USB, upload sketch, and test BLE connection via mobile phone (e.g. nRF Connect or LightBlue).
 
 ---
 
