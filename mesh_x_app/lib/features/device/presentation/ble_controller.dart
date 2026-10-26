@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/ble_constants.dart';
@@ -52,11 +53,16 @@ class BleController extends Notifier<BleState> {
   BleRepository get _repository => ref.read(bleRepositoryProvider);
   StreamSubscription<List<ScanResult>>? _scanSub;
   StreamSubscription<Map<String, dynamic>>? _telemetrySub;
+  Timer? _reconnectTimer;
+  AppLifecycleListener? _lifecycleListener;
+  bool _isConnecting = false;
 
   @override
   BleState build() {
     _init();
     ref.onDispose(() {
+      _reconnectTimer?.cancel();
+      _lifecycleListener?.dispose();
       _scanSub?.cancel();
       _telemetrySub?.cancel();
     });
@@ -64,6 +70,14 @@ class BleController extends Notifier<BleState> {
   }
 
   void _init() {
+    _lifecycleListener = AppLifecycleListener(
+      onResume: () {
+        if (state.status == BleConnectionStatus.disconnected && state.autoReconnect) {
+          _scheduleAutoReconnect(delay: const Duration(milliseconds: 600));
+        }
+      },
+    );
+
     _scanSub = _repository.scanResults.listen((results) {
       final filtered = results.where((r) {
         final name = r.advertisementData.advName;
@@ -87,14 +101,27 @@ class BleController extends Notifier<BleState> {
       }
     });
 
-    // Check saved device for auto-connect
-    checkAutoReconnect();
+    // Check saved device for auto-connect with a brief debounce
+    _scheduleAutoReconnect(delay: const Duration(milliseconds: 800));
+  }
+
+  void _scheduleAutoReconnect({Duration delay = const Duration(seconds: 4)}) {
+    _reconnectTimer?.cancel();
+    if (!state.autoReconnect) return;
+    _reconnectTimer = Timer(delay, () {
+      if (state.status == BleConnectionStatus.disconnected ||
+          state.status == BleConnectionStatus.error) {
+        checkAutoReconnect();
+      }
+    });
   }
 
   Future<void> checkAutoReconnect() async {
-    if (!state.autoReconnect) return;
+    if (!state.autoReconnect || _isConnecting) return;
     final savedId = await _repository.getSavedDeviceId();
-    if (savedId != null && state.status == BleConnectionStatus.disconnected) {
+    if (savedId != null &&
+        (state.status == BleConnectionStatus.disconnected ||
+            state.status == BleConnectionStatus.error)) {
       state = state.copyWith(status: BleConnectionStatus.reconnecting);
       try {
         final device = BluetoothDevice.fromId(savedId);
@@ -109,6 +136,7 @@ class BleController extends Notifier<BleState> {
   }
 
   Future<void> startScan() async {
+    _reconnectTimer?.cancel();
     state = state.copyWith(
       isScanning: true,
       status: BleConnectionStatus.scanning,
@@ -138,6 +166,14 @@ class BleController extends Notifier<BleState> {
   }
 
   Future<void> connect(BluetoothDevice device) async {
+    if (_isConnecting ||
+        state.status == BleConnectionStatus.connecting ||
+        state.status == BleConnectionStatus.handshaking) {
+      return;
+    }
+    _isConnecting = true;
+    _reconnectTimer?.cancel();
+
     await stopScan();
     state = state.copyWith(
       status: BleConnectionStatus.connecting,
@@ -155,7 +191,7 @@ class BleController extends Notifier<BleState> {
               deviceInfo: null,
             );
             if (state.autoReconnect) {
-              checkAutoReconnect();
+              _scheduleAutoReconnect(delay: const Duration(seconds: 4));
             }
           }
         },
@@ -170,10 +206,16 @@ class BleController extends Notifier<BleState> {
         status: BleConnectionStatus.error,
         errorMessage: 'Connection failed: $e',
       );
+      if (state.autoReconnect) {
+        _scheduleAutoReconnect(delay: const Duration(seconds: 6));
+      }
+    } finally {
+      _isConnecting = false;
     }
   }
 
   Future<void> disconnect() async {
+    _reconnectTimer?.cancel();
     await _repository.disconnect();
     state = state.copyWith(
       status: BleConnectionStatus.disconnected,
@@ -182,6 +224,7 @@ class BleController extends Notifier<BleState> {
   }
 
   Future<void> forgetDevice() async {
+    _reconnectTimer?.cancel();
     await disconnect();
     await _repository.forgetSavedDevice();
   }
@@ -192,6 +235,11 @@ class BleController extends Notifier<BleState> {
 
   void toggleAutoReconnect(bool enabled) {
     state = state.copyWith(autoReconnect: enabled);
+    if (enabled && state.status == BleConnectionStatus.disconnected) {
+      _scheduleAutoReconnect(delay: const Duration(milliseconds: 500));
+    } else if (!enabled) {
+      _reconnectTimer?.cancel();
+    }
   }
 }
 

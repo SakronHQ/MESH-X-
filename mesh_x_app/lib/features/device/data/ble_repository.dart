@@ -64,6 +64,15 @@ class BleRepository {
     BluetoothDevice device, {
     void Function(BluetoothConnectionState)? onStateChange,
   }) async {
+    // Reset any lingering or stale GATT connection before establishing a new one
+    try {
+      if (_connectedDevice != null && _connectedDevice!.remoteId != device.remoteId) {
+        await _connectedDevice!.disconnect().timeout(const Duration(milliseconds: 500));
+      }
+      await device.disconnect().timeout(const Duration(milliseconds: 500));
+    } catch (_) {}
+
+    _cleanupCharacteristics();
     _connectedDevice = device;
 
     // Listen to connection state
@@ -75,20 +84,33 @@ class BleRepository {
       }
     });
 
+    // Connect with autoConnect false and 8-second safety timeout
     await device.connect(
-      timeout: const Duration(seconds: 15),
+      timeout: const Duration(seconds: 8),
+      autoConnect: false,
       license: License.nonprofit,
     );
 
+    // Request balanced connection priority so Android does not kill BLE link in background
+    try {
+      await device.requestConnectionPriority(
+        connectionPriorityRequest: ConnectionPriority.balanced,
+      ).timeout(const Duration(seconds: 2));
+    } catch (_) {}
+
     // Request MTU up to 256 bytes
     try {
-      await device.requestMtu(256);
+      await device.requestMtu(256).timeout(const Duration(seconds: 2));
     } catch (_) {
       // MTU negotiation unsupported or platform-constrained
     }
 
-    // Discover services
-    final services = await device.discoverServices();
+    // Discover services with 6-second timeout
+    final services = await device.discoverServices().timeout(
+      const Duration(seconds: 6),
+      onTimeout: () => throw TimeoutException('GATT service discovery timed out'),
+    );
+
     final targetService = services.firstWhere(
       (s) => s.uuid.toString().toUpperCase() == BleConstants.serviceUuid.toUpperCase(),
       orElse: () => throw Exception('MESH-X Service not found on device'),
@@ -108,35 +130,54 @@ class BleRepository {
       }
     }
 
-    // Subscribe to Event Out notifications
+    // Subscribe to Event Out notifications with timeout
     if (_eventOutChar != null) {
-      await _eventOutChar!.setNotifyValue(true);
-      _eventSubscription?.cancel();
-      _eventSubscription = _eventOutChar!.onValueReceived.listen((data) {
-        _handleRawEventFrame(data);
-      });
+      try {
+        await _eventOutChar!.setNotifyValue(true).timeout(
+          const Duration(seconds: 3),
+        );
+        _eventSubscription?.cancel();
+        _eventSubscription = _eventOutChar!.onValueReceived.listen((data) {
+          _handleRawEventFrame(data);
+        });
+      } catch (_) {}
     }
 
-    // Subscribe to Telemetry notifications
+    // Subscribe to Telemetry notifications with timeout
     if (_telemetryChar != null) {
-      await _telemetryChar!.setNotifyValue(true);
-      _telemetrySubscription?.cancel();
-      _telemetrySubscription = _telemetryChar!.onValueReceived.listen((data) {
-        try {
-          final jsonStr = utf8.decode(data);
-          final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-          _telemetryController.add(map);
-        } catch (_) {}
-      });
+      try {
+        await _telemetryChar!.setNotifyValue(true).timeout(
+          const Duration(seconds: 3),
+        );
+        _telemetrySubscription?.cancel();
+        _telemetrySubscription = _telemetryChar!.onValueReceived.listen((data) {
+          try {
+            final jsonStr = utf8.decode(data);
+            final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+            _telemetryController.add(map);
+          } catch (_) {}
+        });
+      } catch (_) {}
     }
 
-    // Read Device Info
+    // Read Device Info with timeout and fallback
     MeshXDeviceInfo? deviceInfo;
     if (_deviceInfoChar != null) {
-      final rawInfo = await _deviceInfoChar!.read();
-      final infoJson = utf8.decode(rawInfo);
-      final map = jsonDecode(infoJson) as Map<String, dynamic>;
-      deviceInfo = MeshXDeviceInfo.fromJson(map);
+      try {
+        final rawInfo = await _deviceInfoChar!.read().timeout(
+          const Duration(seconds: 3),
+        );
+        final infoJson = utf8.decode(rawInfo);
+        final map = jsonDecode(infoJson) as Map<String, dynamic>;
+        deviceInfo = MeshXDeviceInfo.fromJson(map);
+      } catch (_) {
+        deviceInfo = MeshXDeviceInfo(
+          nodeId: 0,
+          firmwareVersion: '1.3.0',
+          protocolVersion: 1,
+          deviceName: device.platformName.isNotEmpty ? device.platformName : 'MESH-X Node',
+        );
+      }
     }
 
     // Remember connected device ID
@@ -147,9 +188,11 @@ class BleRepository {
   }
 
   Future<void> disconnect() async {
+    _cleanupCharacteristics();
     if (_connectedDevice != null) {
-      await _connectedDevice!.disconnect();
-      _cleanupCharacteristics();
+      try {
+        await _connectedDevice!.disconnect().timeout(const Duration(seconds: 2));
+      } catch (_) {}
       _connectedDevice = null;
     }
   }
@@ -158,6 +201,9 @@ class BleRepository {
     _eventSubscription?.cancel();
     _telemetrySubscription?.cancel();
     _connStateSubscription?.cancel();
+    _eventSubscription = null;
+    _telemetrySubscription = null;
+    _connStateSubscription = null;
     _cmdInChar = null;
     _eventOutChar = null;
     _telemetryChar = null;
