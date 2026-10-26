@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/status_badge.dart';
@@ -14,14 +15,14 @@ class DeviceScannerScreen extends ConsumerWidget {
     final bleState = ref.watch(bleControllerProvider);
     final controller = ref.read(bleControllerProvider.notifier);
 
-    // If connected, redirect or offer dashboard view
+    // If connected, render the full Dashboard view
     if (bleState.status == BleConnectionStatus.connected) {
       return const DeviceDashboardScreen();
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Connect Node'),
+        title: const Text('Pair Radio Node'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
@@ -33,18 +34,24 @@ class DeviceScannerScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 12),
               // Header Card
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: AppColors.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -52,29 +59,38 @@ class DeviceScannerScreen extends ConsumerWidget {
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(8),
+                          width: 44,
+                          height: 44,
                           decoration: BoxDecoration(
                             color: AppColors.accent.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: AppColors.accent.withValues(alpha: 0.25),
+                            ),
                           ),
-                          child: const Icon(Icons.bluetooth_searching, color: AppColors.accent, size: 22),
+                          child: const Icon(
+                            Icons.bluetooth_searching_rounded,
+                            color: AppColors.accent,
+                            size: 24,
+                          ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 14),
                         const Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Hardware Pairing',
+                                'ESP32 BLE Gateway',
                                 style: TextStyle(
-                                  fontSize: 15,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.w700,
                                   color: AppColors.textPrimary,
+                                  letterSpacing: -0.3,
                                 ),
                               ),
                               SizedBox(height: 2),
                               Text(
-                                'Ensure your ESP32 node is powered on and running MESH-X firmware.',
+                                'Pair your hardware node running MESH-X firmware.',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: AppColors.textSecondary,
@@ -85,19 +101,29 @@ class DeviceScannerScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 18),
                     ElevatedButton.icon(
-                      onPressed: bleState.isScanning
-                          ? controller.stopScan
-                          : controller.startScan,
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        if (bleState.isScanning) {
+                          controller.stopScan();
+                        } else {
+                          controller.startScan();
+                        }
+                      },
                       icon: bleState.isScanning
                           ? const SizedBox(
                               width: 18,
                               height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF041017),
+                              ),
                             )
-                          : const Icon(Icons.search, size: 20),
-                      label: Text(bleState.isScanning ? 'Stop Scanning' : 'Scan for Nodes'),
+                          : const Icon(Icons.radar_rounded, size: 20),
+                      label: Text(
+                        bleState.isScanning ? 'Stop Scanning' : 'Scan for Nodes',
+                      ),
                     ),
                   ],
                 ),
@@ -108,18 +134,20 @@ class DeviceScannerScreen extends ConsumerWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: AppColors.error.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                    color: AppColors.error.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: AppColors.error.withValues(alpha: 0.35),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline, color: AppColors.error, size: 20),
-                      const SizedBox(width: 8),
+                      const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 20),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           bleState.errorMessage!,
-                          style: const TextStyle(fontSize: 12, color: AppColors.error),
+                          style: const TextStyle(fontSize: 12, color: AppColors.error, fontWeight: FontWeight.w500),
                         ),
                       ),
                     ],
@@ -127,24 +155,33 @@ class DeviceScannerScreen extends ConsumerWidget {
                 ),
               ],
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 22),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'Discovered Devices',
+                    'Discovered Nodes',
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary,
+                      letterSpacing: -0.3,
                     ),
                   ),
-                  Text(
-                    '${bleState.scanResults.length} found',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textMuted,
-                      fontWeight: FontWeight.w500,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceElevated,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Text(
+                      '${bleState.scanResults.length} found',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -158,23 +195,48 @@ class DeviceScannerScreen extends ConsumerWidget {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
-                              bleState.isScanning ? Icons.sensors : Icons.bluetooth_disabled,
-                              size: 48,
-                              color: AppColors.textMuted.withValues(alpha: 0.5),
+                            Container(
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceElevated,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Icon(
+                                bleState.isScanning
+                                    ? Icons.sensors_rounded
+                                    : Icons.bluetooth_disabled_rounded,
+                                size: 30,
+                                color: bleState.isScanning
+                                    ? AppColors.accent
+                                    : AppColors.textMuted,
+                              ),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 16),
                             Text(
                               bleState.isScanning
-                                  ? 'Listening for MESH-X radio nodes...'
-                                  : 'No nodes found. Tap "Scan for Nodes" to begin.',
-                              style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+                                  ? 'Scanning 2.4 GHz BLE spectrum...'
+                                  : 'No MESH-X nodes detected yet.',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              bleState.isScanning
+                                  ? 'Make sure your ESP32 node is powered on.'
+                                  : 'Tap "Scan for Nodes" to discover nearby devices.',
+                              style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                               textAlign: TextAlign.center,
                             ),
                           ],
                         ),
                       )
                     : ListView.separated(
+                        padding: const EdgeInsets.only(bottom: 80),
                         itemCount: bleState.scanResults.length,
                         separatorBuilder: (context, index) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
@@ -189,19 +251,31 @@ class DeviceScannerScreen extends ConsumerWidget {
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               color: AppColors.surface,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(16),
                               border: Border.all(color: AppColors.border),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.15),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
                             ),
                             child: Row(
                               children: [
                                 Container(
-                                  width: 40,
-                                  height: 40,
+                                  width: 44,
+                                  height: 44,
                                   decoration: BoxDecoration(
                                     color: AppColors.surfaceElevated,
-                                    borderRadius: BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: AppColors.border),
                                   ),
-                                  child: const Icon(Icons.router, color: AppColors.accent, size: 22),
+                                  child: const Icon(
+                                    Icons.router_rounded,
+                                    color: AppColors.accent,
+                                    size: 22,
+                                  ),
                                 ),
                                 const SizedBox(width: 14),
                                 Expanded(
@@ -214,6 +288,7 @@ class DeviceScannerScreen extends ConsumerWidget {
                                           fontSize: 15,
                                           fontWeight: FontWeight.w700,
                                           color: AppColors.textPrimary,
+                                          letterSpacing: -0.2,
                                         ),
                                       ),
                                       const SizedBox(height: 2),
@@ -223,6 +298,7 @@ class DeviceScannerScreen extends ConsumerWidget {
                                           fontFamily: 'monospace',
                                           fontSize: 11,
                                           color: AppColors.textMuted,
+                                          fontWeight: FontWeight.w500,
                                         ),
                                       ),
                                     ],
@@ -231,34 +307,60 @@ class DeviceScannerScreen extends ConsumerWidget {
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
-                                    Text(
-                                      '${result.rssi} dBm',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: result.rssi > -70
-                                            ? AppColors.connected
-                                            : AppColors.warning,
-                                      ),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.signal_cellular_alt_rounded,
+                                          size: 13,
+                                          color: result.rssi > -70
+                                              ? AppColors.connected
+                                              : AppColors.warning,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '${result.rssi} dBm',
+                                          style: TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: result.rssi > -70
+                                                ? AppColors.connected
+                                                : AppColors.warning,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                     const SizedBox(height: 6),
                                     SizedBox(
-                                      height: 32,
+                                      height: 34,
                                       child: ElevatedButton(
                                         onPressed: isConnecting
                                             ? null
-                                            : () => controller.connect(result.device),
+                                            : () {
+                                                HapticFeedback.lightImpact();
+                                                controller.connect(result.device);
+                                              },
                                         style: ElevatedButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                                          padding: const EdgeInsets.symmetric(horizontal: 16),
                                           minimumSize: Size.zero,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
                                         ),
                                         child: isConnecting
                                             ? const SizedBox(
                                                 width: 14,
                                                 height: 14,
-                                                child: CircularProgressIndicator(strokeWidth: 2),
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: Color(0xFF041017),
+                                                ),
                                               )
-                                            : const Text('Connect', style: TextStyle(fontSize: 12)),
+                                            : const Text(
+                                                'Connect',
+                                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                              ),
                                       ),
                                     ),
                                   ],
@@ -276,3 +378,4 @@ class DeviceScannerScreen extends ConsumerWidget {
     );
   }
 }
+

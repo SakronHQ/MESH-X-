@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../chat/presentation/chat_controller.dart';
@@ -18,21 +19,38 @@ class MeshNodesScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Mesh Topology & Nodes'),
+        title: const Text('Mesh Topology'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.qr_code, color: AppColors.accent),
-            tooltip: 'My Identity & Keys',
-            onPressed: () => showDialog(
-              context: context,
-              builder: (_) => const KeyExchangeDialog(),
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.accent.withValues(alpha: 0.3),
+                ),
+              ),
+              child: const Icon(Icons.qr_code_rounded, color: AppColors.accent, size: 18),
             ),
+            tooltip: 'My Identity & Keys',
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              showDialog(
+                context: context,
+                builder: (_) => const KeyExchangeDialog(),
+              );
+            },
           ),
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh_rounded, size: 22),
             tooltip: 'Refresh Nodes',
-            onPressed: () => ref.invalidate(discoveredNodesProvider),
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              ref.invalidate(discoveredNodesProvider);
+            },
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: nodesAsync.when(
@@ -44,14 +62,14 @@ class MeshNodesScreen extends ConsumerWidget {
             children: [
               // Summary Metric Cards
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: Row(
                   children: [
                     Expanded(
                       child: _buildMetricCard(
-                        title: 'Total Discovered',
+                        title: 'Discovered',
                         value: '${nodes.length}',
-                        icon: Icons.hub_outlined,
+                        icon: Icons.hub_rounded,
                         color: AppColors.accent,
                       ),
                     ),
@@ -60,7 +78,7 @@ class MeshNodesScreen extends ConsumerWidget {
                       child: _buildMetricCard(
                         title: 'Direct (1 Hop)',
                         value: '$directCount',
-                        icon: Icons.near_me_outlined,
+                        icon: Icons.near_me_rounded,
                         color: AppColors.connected,
                       ),
                     ),
@@ -69,7 +87,7 @@ class MeshNodesScreen extends ConsumerWidget {
                       child: _buildMetricCard(
                         title: 'Relayed (>1 Hop)',
                         value: '$relayedCount',
-                        icon: Icons.alt_route_outlined,
+                        icon: Icons.alt_route_rounded,
                         color: AppColors.warning,
                       ),
                     ),
@@ -83,15 +101,19 @@ class MeshNodesScreen extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: AppColors.border),
                 ),
                 child: Row(
                   children: [
                     Icon(
-                      bleState.isConnected ? Icons.sensors : Icons.sensors_off,
+                      bleState.isConnected
+                          ? Icons.sensors_rounded
+                          : Icons.sensors_off_rounded,
                       size: 18,
-                      color: bleState.isConnected ? AppColors.connected : AppColors.textMuted,
+                      color: bleState.isConnected
+                          ? AppColors.connected
+                          : AppColors.textMuted,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -102,6 +124,7 @@ class MeshNodesScreen extends ConsumerWidget {
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.textSecondary,
+                          height: 1.3,
                         ),
                       ),
                     ),
@@ -114,7 +137,7 @@ class MeshNodesScreen extends ConsumerWidget {
                 child: nodes.isEmpty
                     ? _buildEmptyState()
                     : ListView.separated(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
                         itemCount: nodes.length,
                         separatorBuilder: (context, index) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
@@ -130,8 +153,10 @@ class MeshNodesScreen extends ConsumerWidget {
           child: CircularProgressIndicator(color: AppColors.accent),
         ),
         error: (err, _) => Center(
-          child: Text('Error loading mesh nodes: $err',
-              style: const TextStyle(color: AppColors.error)),
+          child: Text(
+            'Error loading mesh nodes: $err',
+            style: const TextStyle(color: AppColors.error),
+          ),
         ),
       ),
     );
@@ -144,11 +169,18 @@ class MeshNodesScreen extends ConsumerWidget {
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -160,14 +192,15 @@ class MeshNodesScreen extends ConsumerWidget {
               Text(
                 value,
                 style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
                   color: color,
+                  fontFamily: 'monospace',
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             title,
             maxLines: 1,
@@ -175,7 +208,7 @@ class MeshNodesScreen extends ConsumerWidget {
             style: const TextStyle(
               fontSize: 11,
               color: AppColors.textMuted,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -191,29 +224,32 @@ class MeshNodesScreen extends ConsumerWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
                 color: AppColors.surfaceElevated,
                 shape: BoxShape.circle,
+                border: Border.all(color: AppColors.border),
               ),
               child: const Icon(
                 Icons.hub_outlined,
-                size: 48,
+                size: 30,
                 color: AppColors.textMuted,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             const Text(
-              'No Mesh Peers Discovered Yet',
+              'No Mesh Peers Discovered',
               style: TextStyle(
                 fontSize: 16,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
                 color: AppColors.textPrimary,
+                letterSpacing: -0.3,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             const Text(
-              'When nearby ESP32 nodes broadcast presence or relay messages across the 433 MHz LoRa band, they will appear here automatically with hop distances and RF metrics.',
+              'When nearby ESP32 nodes broadcast presence across the 433 MHz LoRa band, they will appear here automatically with hop counts and RF metrics.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
@@ -236,8 +272,15 @@ class MeshNodesScreen extends ConsumerWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -247,9 +290,9 @@ class MeshNodesScreen extends ConsumerWidget {
             height: 44,
             decoration: BoxDecoration(
               color: node.isDirectNeighbor
-                  ? AppColors.accent.withValues(alpha: 0.15)
-                  : AppColors.warning.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(10),
+                  ? AppColors.accent.withValues(alpha: 0.12)
+                  : AppColors.warning.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: node.isDirectNeighbor
                     ? AppColors.accent.withValues(alpha: 0.3)
@@ -257,7 +300,7 @@ class MeshNodesScreen extends ConsumerWidget {
               ),
             ),
             child: Icon(
-              node.isDirectNeighbor ? Icons.router : Icons.alt_route,
+              node.isDirectNeighbor ? Icons.router_rounded : Icons.alt_route_rounded,
               color: node.isDirectNeighbor ? AppColors.accent : AppColors.warning,
               size: 22,
             ),
@@ -275,9 +318,10 @@ class MeshNodesScreen extends ConsumerWidget {
                       node.formattedNodeHex,
                       style: const TextStyle(
                         fontSize: 15,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w700,
                         color: AppColors.textPrimary,
                         letterSpacing: 0.5,
+                        fontFamily: 'monospace',
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -285,15 +329,15 @@ class MeshNodesScreen extends ConsumerWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: node.isDirectNeighbor
-                            ? AppColors.connected.withValues(alpha: 0.2)
-                            : AppColors.warning.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(4),
+                            ? AppColors.connected.withValues(alpha: 0.18)
+                            : AppColors.warning.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         node.isDirectNeighbor ? '1 HOP DIRECT' : '${node.hopDistance} HOPS RELAY',
                         style: TextStyle(
                           fontSize: 9,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w800,
                           color: node.isDirectNeighbor
                               ? AppColors.connected
                               : AppColors.warning,
@@ -305,8 +349,8 @@ class MeshNodesScreen extends ConsumerWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                         decoration: BoxDecoration(
-                          color: AppColors.connected.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(4),
+                          color: AppColors.connected.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(6),
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
@@ -330,29 +374,31 @@ class MeshNodesScreen extends ConsumerWidget {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    Icon(Icons.signal_cellular_alt, size: 13, color: signalColor),
+                    Icon(Icons.signal_cellular_alt_rounded, size: 13, color: signalColor),
                     const SizedBox(width: 4),
                     Text(
                       '${node.lastRssi} dBm',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         color: signalColor,
-                        fontWeight: FontWeight.w500,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Text(
                       'SNR: ${node.lastSnr.toStringAsFixed(1)} dB',
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         color: AppColors.textSecondary,
+                        fontFamily: 'monospace',
                       ),
                     ),
                     const SizedBox(width: 8),
                     Text(
                       '• ${node.relativeLastSeen}',
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         color: AppColors.textMuted,
                       ),
                     ),
@@ -365,29 +411,32 @@ class MeshNodesScreen extends ConsumerWidget {
           // Key Pairing Button
           IconButton(
             icon: Icon(
-              node.hasPublicKey ? Icons.shield : Icons.key_outlined,
-              size: 18,
+              node.hasPublicKey ? Icons.shield_rounded : Icons.key_rounded,
+              size: 20,
               color: node.hasPublicKey ? AppColors.connected : AppColors.textMuted,
             ),
             tooltip: node.hasPublicKey ? 'Key Verified (E2EE Active)' : 'Pair E2EE Key',
             onPressed: () {
+              HapticFeedback.lightImpact();
               showDialog(
                 context: context,
                 builder: (_) => KeyExchangeDialog(peerNodeId: node.nodeId),
               );
             },
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
 
           // Chat Button
           FilledButton.tonal(
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.surfaceHighlight,
               foregroundColor: AppColors.accent,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               minimumSize: const Size(44, 38),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
             onPressed: () async {
+              HapticFeedback.selectionClick();
               final chatRepo = ref.read(chatRepositoryProvider);
               final conv = await chatRepo.ensureConversationForNode(node.nodeId);
               if (context.mounted) {
@@ -403,9 +452,9 @@ class MeshNodesScreen extends ConsumerWidget {
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.chat_bubble_outline, size: 16),
-                SizedBox(width: 4),
-                Text('Chat', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                Icon(Icons.chat_bubble_outline_rounded, size: 15),
+                SizedBox(width: 5),
+                Text('Chat', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
               ],
             ),
           ),
@@ -414,3 +463,4 @@ class MeshNodesScreen extends ConsumerWidget {
     );
   }
 }
+

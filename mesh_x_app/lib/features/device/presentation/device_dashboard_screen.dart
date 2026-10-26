@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/status_badge.dart';
@@ -28,73 +29,131 @@ class DeviceDashboardScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 90),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (deviceInfo != null) ...[
                 TelemetryCard(deviceInfo: deviceInfo),
-                const SizedBox(height: 20),
+                const SizedBox(height: 22),
               ],
 
               // Hardware Diagnostics Section
               const Text(
                 'Link & Diagnostics',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textPrimary,
+                  letterSpacing: -0.3,
                 ),
               ),
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: AppColors.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: Column(
                   children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceElevated,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.network_ping, color: AppColors.accent, size: 20),
-                      ),
-                      title: const Text('Test BLE Link (Ping)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                      subtitle: const Text('Sends framed CMD_PING and awaits EVT_PONG', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                      trailing: ElevatedButton(
-                        onPressed: () async {
-                          await controller.sendPing();
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('CMD_PING sent to ESP32 node'),
-                                duration: Duration(seconds: 1),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceElevated,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.network_ping_rounded,
+                              color: AppColors.accent,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Test BLE Link (Ping)',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Sends framed CMD_PING and awaits EVT_PONG',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          ElevatedButton(
+                            onPressed: () async {
+                              HapticFeedback.lightImpact();
+                              await controller.sendPing();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('CMD_PING sent to ESP32 gateway node'),
+                                    duration: Duration(seconds: 1),
+                                  ),
+                                );
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: Size.zero,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
                               ),
-                            );
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: Size.zero,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        ),
-                        child: const Text('Ping', style: TextStyle(fontSize: 12)),
+                            ),
+                            child: const Text('Ping', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                          ),
+                        ],
                       ),
                     ),
                     const Divider(height: 1, color: AppColors.border),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Auto-Reconnect', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                      subtitle: const Text('Automatically reconnect when in range', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                      value: bleState.autoReconnect,
-                      activeThumbColor: AppColors.accent,
-                      onChanged: (val) => controller.toggleAutoReconnect(val),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      child: SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Auto-Reconnect',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Automatically restore link when node is in range',
+                          style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        ),
+                        value: bleState.autoReconnect,
+                        activeThumbColor: AppColors.accent,
+                        onChanged: (val) {
+                          HapticFeedback.selectionClick();
+                          controller.toggleAutoReconnect(val);
+                        },
+                      ),
                     ),
                   ],
                 ),
@@ -104,22 +163,35 @@ class DeviceDashboardScreen extends ConsumerWidget {
               const Text(
                 'Device Actions',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textPrimary,
+                  letterSpacing: -0.3,
                 ),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                onPressed: () => controller.disconnect(),
-                icon: const Icon(Icons.link_off, size: 18, color: AppColors.warning),
-                label: const Text('Disconnect Node', style: TextStyle(color: AppColors.warning)),
+                onPressed: () {
+                  HapticFeedback.mediumImpact();
+                  controller.disconnect();
+                },
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: AppColors.warning.withValues(alpha: 0.5), width: 1.2),
+                ),
+                icon: const Icon(Icons.link_off_rounded, size: 18, color: AppColors.warning),
+                label: const Text('Disconnect Node', style: TextStyle(color: AppColors.warning, fontWeight: FontWeight.w600)),
               ),
               const SizedBox(height: 10),
               OutlinedButton.icon(
-                onPressed: () => controller.forgetDevice(),
-                icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.error),
-                label: const Text('Forget & Disconnect Node', style: TextStyle(color: AppColors.error)),
+                onPressed: () {
+                  HapticFeedback.mediumImpact();
+                  controller.forgetDevice();
+                },
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: AppColors.error.withValues(alpha: 0.5), width: 1.2),
+                ),
+                icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.error),
+                label: const Text('Forget & Disconnect Node', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600)),
               ),
             ],
           ),
@@ -128,3 +200,4 @@ class DeviceDashboardScreen extends ConsumerWidget {
     );
   }
 }
+

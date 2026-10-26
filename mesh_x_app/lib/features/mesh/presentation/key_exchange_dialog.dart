@@ -77,7 +77,7 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
     return Dialog(
       backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         side: const BorderSide(color: AppColors.border),
       ),
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
@@ -90,19 +90,31 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
               padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
               child: Row(
                 children: [
-                  const Icon(Icons.shield_outlined, color: AppColors.accent, size: 22),
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.shield_outlined,
+                      color: AppColors.accent,
+                      size: 20,
+                    ),
+                  ),
                   const SizedBox(width: 10),
                   const Text(
-                    'End-to-End Cryptography',
+                    'Cryptography Vault',
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary,
+                      letterSpacing: -0.3,
                     ),
                   ),
                   const Spacer(),
                   IconButton(
-                    icon: const Icon(Icons.close, color: AppColors.textMuted, size: 20),
+                    icon: const Icon(Icons.close_rounded, color: AppColors.textMuted, size: 20),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
@@ -110,23 +122,39 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
             ),
 
             // Tab Bar
-            TabBar(
-              controller: _tabController,
-              indicatorColor: AppColors.accent,
-              labelColor: AppColors.accent,
-              unselectedLabelColor: AppColors.textMuted,
-              labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-              tabs: const [
-                Tab(text: 'My Identity Card'),
-                Tab(text: 'Pair Contact Key'),
-              ],
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceElevated,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicator: BoxDecoration(
+                  color: AppColors.surfaceHighlight,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.border),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                labelColor: AppColors.accent,
+                unselectedLabelColor: AppColors.textMuted,
+                labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+                padding: const EdgeInsets.all(3),
+                tabs: const [
+                  Tab(text: 'My Identity Card'),
+                  Tab(text: 'Pair Contact Key'),
+                ],
+              ),
             ),
 
             // Tab Views
             Expanded(
               child: _isLoading
                   ? const Center(
-                      child: CircularProgressIndicator(color: AppColors.accent))
+                      child: CircularProgressIndicator(color: AppColors.accent),
+                    )
                   : TabBarView(
                       controller: _tabController,
                       children: [
@@ -148,46 +176,53 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
         children: [
           // QR Code Card
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.2),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: QrImageView(
               data: qrData,
               version: QrVersions.auto,
-              size: 160.0,
+              size: 150.0,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
 
           // Fingerprint Badge
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
               color: AppColors.surfaceElevated,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(color: AppColors.border),
             ),
             child: Column(
               children: [
                 const Text(
-                  'FINGERPRINT',
+                  'SECURITY FINGERPRINT',
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 9,
                     letterSpacing: 1.2,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     color: AppColors.accent,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 5),
                 Text(
-                  _myFingerprint ?? 'LOADING',
+                  _myFingerprint ?? 'LOADING...',
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontFamily: 'monospace',
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
                     color: AppColors.textPrimary,
                   ),
                 ),
@@ -197,8 +232,12 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
           const SizedBox(height: 12),
 
           Text(
-            'Node ID: $myNodeHex (X25519 Curve25519 Key)',
-            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            'Node ID: $myNodeHex • Curve25519 (X25519)',
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 16),
 
@@ -207,17 +246,22 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.surfaceHighlight,
               foregroundColor: AppColors.accent,
-              minimumSize: const Size(double.infinity, 44),
+              minimumSize: const Size(double.infinity, 46),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            icon: const Icon(Icons.copy, size: 16),
-            label: const Text('Copy 64-char Public Key Hex'),
+            icon: const Icon(Icons.copy_rounded, size: 16),
+            label: const Text(
+              'Copy 64-Hex Public Key',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
             onPressed: () {
               if (_myPubKeyHex != null) {
+                HapticFeedback.lightImpact();
                 Clipboard.setData(ClipboardData(text: _myPubKeyHex!));
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Public key hex copied to clipboard!'),
-                    duration: Duration(seconds: 2),
+                    content: Text('Public key hex copied to clipboard'),
+                    duration: Duration(seconds: 1),
                   ),
                 );
               }
@@ -237,35 +281,34 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
           const Text(
             'Pair Contact Public Key',
             style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
               color: AppColors.textPrimary,
+              letterSpacing: -0.2,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           const Text(
-            'Paste peer\'s 64-character public key hex to enable ChaCha20-Poly1305 authenticated end-to-end encryption.',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
+            'Paste peer\'s 64-hex public key to enable ChaCha20-Poly1305 end-to-end encryption.',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.35),
           ),
           const SizedBox(height: 16),
 
           // Node ID Field
           TextField(
             controller: _nodeIdInputController,
-            style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 13,
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w600,
+            ),
             decoration: InputDecoration(
-              labelText: 'Peer Node ID (Hex e.g. 0xA1B2C3D4)',
+              labelText: 'Peer Node ID (e.g. 0xA1B2C3D4)',
               labelStyle: const TextStyle(color: AppColors.textMuted, fontSize: 12),
               filled: true,
               fillColor: AppColors.surfaceElevated,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: AppColors.border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: AppColors.border),
-              ),
+              prefixIcon: const Icon(Icons.tag_rounded, size: 18, color: AppColors.textMuted),
             ),
           ),
           const SizedBox(height: 12),
@@ -280,17 +323,19 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
               fontFamily: 'monospace',
             ),
             decoration: InputDecoration(
-              labelText: 'Peer 32-Byte Public Key (64 Hex Characters)',
+              labelText: 'Peer Public Key (64 Hex Characters)',
               labelStyle: const TextStyle(color: AppColors.textMuted, fontSize: 12),
               filled: true,
               fillColor: AppColors.surfaceElevated,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: AppColors.border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: AppColors.border),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.paste_rounded, size: 18, color: AppColors.accent),
+                tooltip: 'Paste from Clipboard',
+                onPressed: () async {
+                  final data = await Clipboard.getData('text/plain');
+                  if (data != null && data.text != null) {
+                    _keyInputController.text = data.text!.trim();
+                  }
+                },
               ),
             ),
           ),
@@ -298,20 +343,24 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
 
           if (_statusMessage != null) ...[
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.connected.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
+                color: AppColors.connected.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AppColors.connected.withValues(alpha: 0.3)),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.check_circle, size: 16, color: AppColors.connected),
+                  const Icon(Icons.check_circle_rounded, size: 16, color: AppColors.connected),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       _statusMessage!,
-                      style: const TextStyle(fontSize: 12, color: AppColors.connected),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.connected,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ],
@@ -321,18 +370,20 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
           ],
 
           // Save Key Button
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.accent,
-              foregroundColor: AppColors.background,
-              minimumSize: const Size(double.infinity, 44),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 46),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            icon: const Icon(Icons.lock, size: 18),
+            icon: const Icon(Icons.lock_rounded, size: 18),
             label: const Text(
-              'Activate E2EE for Contact',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              'Activate E2EE Encryption',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
-            onPressed: _saveContactKey,
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              _saveContactKey();
+            },
           ),
         ],
       ),
@@ -378,3 +429,4 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
     });
   }
 }
+

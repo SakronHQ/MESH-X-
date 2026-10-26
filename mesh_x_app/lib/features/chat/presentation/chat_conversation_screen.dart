@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/status_badge.dart';
@@ -46,6 +47,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
     final text = _textController.text.trim();
     if (text.isEmpty) return;
 
+    HapticFeedback.lightImpact();
     _textController.clear();
     final bleState = ref.read(bleControllerProvider);
     final localNodeId = bleState.deviceInfo?.nodeId ?? 0;
@@ -66,7 +68,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent + 80,
         duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
+        curve: Curves.easeOutCubic,
       );
     }
   }
@@ -79,13 +81,27 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
 
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: 0,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.conversation.title, style: const TextStyle(fontSize: 16)),
+            Text(
+              widget.conversation.title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: 1),
             Text(
               widget.conversation.formattedPeerHex,
-              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppColors.textMuted),
+              style: const TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: AppColors.accent,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -100,15 +116,30 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                   final isPaired = snapshot.hasData &&
                       snapshot.data != null &&
                       snapshot.data!.length == 64;
-                  return Icon(
-                    isPaired ? Icons.lock : Icons.lock_open,
-                    color: isPaired ? AppColors.connected : AppColors.textMuted,
-                    size: 20,
+                  return Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: isPaired
+                          ? AppColors.connected.withValues(alpha: 0.15)
+                          : AppColors.surfaceElevated,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isPaired
+                            ? AppColors.connected.withValues(alpha: 0.35)
+                            : AppColors.border,
+                      ),
+                    ),
+                    child: Icon(
+                      isPaired ? Icons.lock_rounded : Icons.lock_open_rounded,
+                      color: isPaired ? AppColors.connected : AppColors.textMuted,
+                      size: 16,
+                    ),
                   );
                 },
               ),
               tooltip: 'End-to-End Encryption Keys',
               onPressed: () {
+                HapticFeedback.selectionClick();
                 showDialog(
                   context: context,
                   builder: (_) => KeyExchangeDialog(
@@ -118,7 +149,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
               },
             ),
           Padding(
-            padding: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.only(right: 16, left: 4),
             child: Center(
               child: StatusBadge(status: bleState.status),
             ),
@@ -130,17 +161,27 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
           children: [
             if (!isConnected)
               Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: AppColors.warning.withValues(alpha: 0.15),
+                margin: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.warning.withValues(alpha: 0.3),
+                  ),
+                ),
                 child: const Row(
                   children: [
-                    Icon(Icons.wifi_off, color: AppColors.warning, size: 16),
+                    Icon(Icons.wifi_off_rounded, color: AppColors.warning, size: 16),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Radio Node offline. Outbound messages will be queued in SQLite.',
-                        style: TextStyle(color: AppColors.warning, fontSize: 12),
+                        'Hardware Node offline. Outbound messages queued in SQLite.',
+                        style: TextStyle(
+                          color: AppColors.warning,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],
@@ -152,11 +193,44 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
               child: messagesAsync.when(
                 data: (messages) {
                   if (messages.isEmpty) {
-                    return const Center(
-                      child: Text(
-                        'No messages in this thread yet.\nType below to transmit via LoRa.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 54,
+                            height: 54,
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceElevated,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Icon(
+                              Icons.cell_tower_rounded,
+                              size: 26,
+                              color: AppColors.textMuted,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'No Messages In Thread',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Type below to transmit packets across the 433 MHz LoRa mesh.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
                       ),
                     );
                   }
@@ -173,8 +247,15 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                     },
                   );
                 },
-                loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accent)),
-                error: (err, _) => Center(child: Text('Error: $err', style: const TextStyle(color: AppColors.error))),
+                loading: () => const Center(
+                  child: CircularProgressIndicator(color: AppColors.accent),
+                ),
+                error: (err, _) => Center(
+                  child: Text(
+                    'Error: $err',
+                    style: const TextStyle(color: AppColors.error),
+                  ),
+                ),
               ),
             ),
 
@@ -193,17 +274,31 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.78,
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: isMe ? AppColors.surfaceHighlight : AppColors.surface,
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMe ? 16 : 4),
-            bottomRight: Radius.circular(isMe ? 4 : 16),
+            topLeft: const Radius.circular(18),
+            topRight: const Radius.circular(18),
+            bottomLeft: Radius.circular(isMe ? 18 : 4),
+            bottomRight: Radius.circular(isMe ? 4 : 18),
           ),
-          border: Border.all(color: isMe ? AppColors.accent.withValues(alpha: 0.2) : AppColors.border),
+          border: Border.all(
+            color: isMe
+                ? AppColors.accent.withValues(alpha: 0.25)
+                : AppColors.border,
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -213,7 +308,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
               style: const TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 14,
-                height: 1.35,
+                height: 1.4,
               ),
             ),
             const SizedBox(height: 5),
@@ -222,21 +317,30 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
               children: [
                 Text(
                   _formatTime(msg.createdAt),
-                  style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: AppColors.textMuted,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
                 if (msg.isEncrypted) ...[
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 5),
                   const Icon(Icons.lock, size: 10, color: AppColors.connected),
                 ],
                 if (!isMe && msg.rssi != null) ...[
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 7),
                   Text(
                     '${msg.rssi} dBm',
-                    style: const TextStyle(fontSize: 10, color: AppColors.accent),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: AppColors.accent,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
                 if (isMe) ...[
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 5),
                   _buildDeliveryStatusIcon(msg),
                 ],
               ],
@@ -250,20 +354,30 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
   Widget _buildDeliveryStatusIcon(MessageModel msg) {
     switch (msg.deliveryStatus) {
       case MessageDeliveryStatus.queued:
-        return const Icon(Icons.schedule, size: 14, color: AppColors.textMuted);
+        return const Icon(Icons.schedule, size: 12, color: AppColors.textMuted);
       case MessageDeliveryStatus.transmitted:
-        return const Icon(Icons.done, size: 14, color: AppColors.textSecondary);
+        return const Icon(Icons.done, size: 12, color: AppColors.textSecondary);
       case MessageDeliveryStatus.delivered:
-        return const Icon(Icons.done_all, size: 14, color: AppColors.connected);
+        return const Icon(Icons.done_all, size: 13, color: AppColors.connected);
       case MessageDeliveryStatus.failed:
         return InkWell(
-          onTap: () => ref.read(chatRepositoryProvider).retryMessage(msg.id),
+          onTap: () {
+            HapticFeedback.lightImpact();
+            ref.read(chatRepositoryProvider).retryMessage(msg.id);
+          },
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline, size: 14, color: AppColors.error),
+              Icon(Icons.error_outline, size: 12, color: AppColors.error),
               SizedBox(width: 3),
-              Text('Retry', style: TextStyle(fontSize: 10, color: AppColors.error, fontWeight: FontWeight.bold)),
+              Text(
+                'Retry',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppColors.error,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
         );
@@ -276,10 +390,10 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
     final currentLen = _textController.text.length;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.border)),
+        border: Border(top: BorderSide(color: AppColors.border, width: 0.8)),
       ),
       child: Column(
         children: [
@@ -290,37 +404,63 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                   controller: _textController,
                   maxLength: _maxChars,
                   buildCounter: (_, {required currentLength, required isFocused, maxLength}) => null,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                  ),
                   decoration: InputDecoration(
-                    hintText: 'Transmit message via LoRa...',
-                    hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 14),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    hintText: 'Transmit via LoRa mesh...',
+                    hintStyle: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 14,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     filled: true,
                     fillColor: AppColors.background,
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(22),
                       borderSide: const BorderSide(color: AppColors.border),
                     ),
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(22),
                       borderSide: const BorderSide(color: AppColors.border),
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: const BorderSide(color: AppColors.accent),
+                      borderRadius: BorderRadius.circular(22),
+                      borderSide: const BorderSide(color: AppColors.accent, width: 1.5),
                     ),
                   ),
                 ),
               ),
               const SizedBox(width: 10),
-              Container(
-                decoration: const BoxDecoration(
-                  color: AppColors.accent,
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.send_rounded, color: Colors.black, size: 20),
-                  onPressed: _isComposing ? _sendMessage : null,
+              GestureDetector(
+                onTap: _isComposing ? _sendMessage : null,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: _isComposing
+                        ? AppColors.accent
+                        : AppColors.surfaceElevated,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      if (_isComposing)
+                        BoxShadow(
+                          color: AppColors.accent.withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.arrow_upward_rounded,
+                    color: _isComposing ? const Color(0xFF041017) : AppColors.textMuted,
+                    size: 22,
+                  ),
                 ),
               ),
             ],
@@ -333,7 +473,9 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                 '$currentLen / $_maxChars B',
                 style: TextStyle(
                   fontSize: 11,
+                  fontFamily: 'monospace',
                   color: currentLen > 160 ? AppColors.warning : AppColors.textMuted,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
@@ -350,3 +492,4 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
     return '$hour:$min';
   }
 }
+

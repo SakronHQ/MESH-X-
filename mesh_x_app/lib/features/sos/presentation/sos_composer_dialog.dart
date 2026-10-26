@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -116,6 +117,7 @@ class _SosComposerDialogState extends ConsumerState<SosComposerDialog>
 
   void _onHoldStart() {
     if (_isSending) return;
+    HapticFeedback.heavyImpact();
     setState(() => _isHolding = true);
     _holdController.forward(from: 0.0);
   }
@@ -128,6 +130,7 @@ class _SosComposerDialogState extends ConsumerState<SosComposerDialog>
   }
 
   Future<void> _triggerEmergencyBroadcast() async {
+    HapticFeedback.vibrate();
     setState(() {
       _isSending = true;
       _isHolding = false;
@@ -186,14 +189,14 @@ class _SosComposerDialogState extends ConsumerState<SosComposerDialog>
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: const Color(0xFF140808),
+      backgroundColor: const Color(0xFF160A0C),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: AppColors.error.withValues(alpha: 0.7), width: 1.5),
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(color: AppColors.error.withValues(alpha: 0.6), width: 1.2),
       ),
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(22),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -202,18 +205,22 @@ class _SosComposerDialogState extends ConsumerState<SosComposerDialog>
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
-                    color: AppColors.error.withValues(alpha: 0.2),
+                    color: AppColors.error.withValues(alpha: 0.18),
                     shape: BoxShape.circle,
+                    border: Border.all(
+                      color: AppColors.error.withValues(alpha: 0.35),
+                    ),
                   ),
                   child: const Icon(
-                    Icons.emergency,
+                    Icons.emergency_rounded,
                     color: AppColors.error,
-                    size: 24,
+                    size: 22,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 const Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,7 +245,7 @@ class _SosComposerDialogState extends ConsumerState<SosComposerDialog>
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close, color: AppColors.textMuted),
+                  icon: const Icon(Icons.close_rounded, color: AppColors.textMuted),
                   onPressed: () => Navigator.of(context).pop(),
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                 ),
@@ -441,24 +448,24 @@ class _SosComposerDialogState extends ConsumerState<SosComposerDialog>
                           width: double.infinity,
                           height: 54,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF2A0E0E),
-                            borderRadius: BorderRadius.circular(14),
+                            color: const Color(0xFF240B0D),
+                            borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: AppColors.error,
-                              width: 2,
+                              width: 1.5,
                             ),
                             boxShadow: _isHolding
                                 ? [
                                     BoxShadow(
                                       color: AppColors.error.withValues(alpha: 0.4),
                                       blurRadius: 20,
-                                      spreadRadius: 3,
+                                      spreadRadius: 2,
                                     ),
                                   ]
                                 : [],
                           ),
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                             child: Stack(
                               alignment: Alignment.center,
                               children: [

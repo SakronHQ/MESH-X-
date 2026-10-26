@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/status_badge.dart';
@@ -21,20 +22,28 @@ class ConversationListScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MESH-X Messages'),
+        title: const Text('Messages'),
         actions: [
           IconButton(
             icon: Container(
-              padding: const EdgeInsets.all(6),
+              padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(
-                color: AppColors.error.withValues(alpha: 0.15),
+                color: AppColors.error.withValues(alpha: 0.14),
                 shape: BoxShape.circle,
-                border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
+                border: Border.all(
+                  color: AppColors.error.withValues(alpha: 0.35),
+                  width: 1,
+                ),
               ),
-              child: const Icon(Icons.emergency, color: AppColors.error, size: 18),
+              child: const Icon(
+                Icons.emergency_outlined,
+                color: AppColors.error,
+                size: 19,
+              ),
             ),
-            tooltip: 'Emergency SOS Broadcast',
+            tooltip: 'Emergency SOS Distress Broadcast',
             onPressed: () {
+              HapticFeedback.mediumImpact();
               showDialog(
                 context: context,
                 builder: (_) => const SosComposerDialog(),
@@ -42,7 +51,7 @@ class ConversationListScreen extends ConsumerWidget {
             },
           ),
           Padding(
-            padding: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.only(right: 16, left: 4),
             child: Center(
               child: StatusBadge(status: bleState.status),
             ),
@@ -54,42 +63,104 @@ class ConversationListScreen extends ConsumerWidget {
           if (activeSos != null) SosAlertBanner(alert: activeSos),
           Expanded(
             child: convsAsync.when(
-        data: (conversations) {
-          if (conversations.isEmpty) {
-            return const Center(
-              child: Text(
-                'No conversations yet.\nBroadcast chat will appear once initialized.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textMuted),
-              ),
-            );
-          }
+              data: (conversations) {
+                if (conversations.isEmpty) {
+                  return _buildEmptyState(context, ref);
+                }
 
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            itemCount: conversations.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final conv = conversations[index];
-              return _buildConversationTile(context, conv);
-            },
-          );
-        },
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: AppColors.accent),
-        ),
-        error: (err, _) => Center(
-          child: Text('Error loading conversations: $err', style: const TextStyle(color: AppColors.error)),
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
+                  itemCount: conversations.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final conv = conversations[index];
+                    return _buildConversationTile(context, conv);
+                  },
+                );
+              },
+              loading: () => const Center(
+                child: CircularProgressIndicator(color: AppColors.accent),
+              ),
+              error: (err, _) => Center(
+                child: Text(
+                  'Error loading conversations: $err',
+                  style: const TextStyle(color: AppColors.error),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 60),
+        child: FloatingActionButton(
+          backgroundColor: AppColors.accent,
+          foregroundColor: const Color(0xFF041017),
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            _showNewConversationDialog(context, ref);
+          },
+          child: const Icon(Icons.edit_note_rounded, size: 24),
         ),
       ),
-    ),
-  ],
-),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.accent,
-        foregroundColor: Colors.black,
-        onPressed: () => _showNewConversationDialog(context, ref),
-        child: const Icon(Icons.add_comment_outlined),
+    );
+  }
+
+  Widget _buildEmptyState(BuildContext context, WidgetRef ref) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceElevated,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.border),
+              ),
+              child: const Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 30,
+                color: AppColors.textMuted,
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'No Conversations Yet',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Broadcast channel and discovered node threads will appear here automatically.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(180, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+              onPressed: () => _showNewConversationDialog(context, ref),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Start Direct Chat', style: TextStyle(fontSize: 13)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -97,102 +168,140 @@ class ConversationListScreen extends ConsumerWidget {
   Widget _buildConversationTile(BuildContext context, ConversationModel conv) {
     final isBroadcast = conv.id == 'broadcast';
 
-    return InkWell(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ChatConversationScreen(conversation: conv),
-          ),
-        );
-      },
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: isBroadcast
-                    ? AppColors.accent.withValues(alpha: 0.12)
-                    : AppColors.surfaceElevated,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                isBroadcast ? Icons.cell_tower : Icons.person_outline,
-                color: isBroadcast ? AppColors.accent : AppColors.textPrimary,
-                size: 22,
-              ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ChatConversationScreen(conversation: conv),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        conv.title,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      if (conv.lastMessageTimestamp != null)
-                        Text(
-                          _formatTimestamp(conv.lastMessageTimestamp!),
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textMuted,
-                          ),
-                        ),
-                    ],
+          );
+        },
+        borderRadius: BorderRadius.circular(18),
+        splashColor: AppColors.accent.withValues(alpha: 0.08),
+        highlightColor: AppColors.surfaceHighlight.withValues(alpha: 0.4),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              // Avatar
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  gradient: isBroadcast
+                      ? LinearGradient(
+                          colors: [
+                            AppColors.accent.withValues(alpha: 0.2),
+                            AppColors.accentMuted.withValues(alpha: 0.1),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null,
+                  color: isBroadcast ? null : AppColors.surfaceElevated,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isBroadcast
+                        ? AppColors.accent.withValues(alpha: 0.3)
+                        : AppColors.border,
                   ),
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          conv.lastMessageText ?? 'No messages yet',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppColors.textSecondary,
+                ),
+                child: Icon(
+                  isBroadcast
+                      ? Icons.cell_tower_rounded
+                      : Icons.person_outline_rounded,
+                  color: isBroadcast ? AppColors.accent : AppColors.textPrimary,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+
+              // Content Info
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            conv.title,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
+                              letterSpacing: -0.2,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ),
-                      if (conv.unreadCount > 0)
-                        Container(
-                          margin: const EdgeInsets.only(left: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppColors.accent,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '${conv.unreadCount}',
+                        if (conv.lastMessageTimestamp != null)
+                          Text(
+                            _formatTimestamp(conv.lastMessageTimestamp!),
                             style: const TextStyle(
-                              color: Colors.black,
                               fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                              color: AppColors.textMuted,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            conv.lastMessageText ?? 'No messages yet',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.textSecondary,
+                              height: 1.3,
                             ),
                           ),
                         ),
-                    ],
-                  ),
-                ],
+                        if (conv.unreadCount > 0)
+                          Container(
+                            margin: const EdgeInsets.only(left: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.accent,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${conv.unreadCount}',
+                              style: const TextStyle(
+                                color: Color(0xFF041017),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -205,33 +314,56 @@ class ConversationListScreen extends ConsumerWidget {
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: AppColors.surface,
-          title: const Text('Direct Chat by Node ID', style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: const BorderSide(color: AppColors.border),
+          ),
+          title: const Text(
+            'Direct Chat by Node ID',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+            ),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Enter the 32-bit hex Node ID of your peer (e.g. 0xA1B2C3D4 or integer):',
+                'Enter the 32-bit hex Node ID of your peer (e.g. 0xA1B2C3D4):',
                 style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               TextField(
                 controller: controller,
                 autofocus: true,
-                style: const TextStyle(color: AppColors.textPrimary, fontFamily: 'monospace'),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontFamily: 'monospace',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
                 decoration: const InputDecoration(
                   hintText: '0x12345678',
                   hintStyle: TextStyle(color: AppColors.textMuted),
-                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.tag, size: 18, color: AppColors.accent),
                 ),
               ),
             ],
           ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
             ),
             ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(120, 42),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
               onPressed: () {
                 final text = controller.text.trim();
                 int? nodeId;
@@ -272,3 +404,4 @@ class ConversationListScreen extends ConsumerWidget {
     return '$hour:$min';
   }
 }
+
