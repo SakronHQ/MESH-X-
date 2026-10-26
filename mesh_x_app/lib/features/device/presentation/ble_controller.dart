@@ -59,13 +59,17 @@ class BleController extends Notifier<BleState> {
 
   @override
   BleState build() {
-    _init();
     ref.onDispose(() {
       _reconnectTimer?.cancel();
       _lifecycleListener?.dispose();
       _scanSub?.cancel();
       _telemetrySub?.cancel();
     });
+
+    Future.microtask(() {
+      _init();
+    });
+
     return const BleState();
   }
 
