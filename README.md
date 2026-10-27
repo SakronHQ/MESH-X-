@@ -110,3 +110,5 @@ MESH-X/
 - **Python**: Version 3.10+
 
 Refer to [docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md) for electrical notes and [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) for roadmap details.
+
+
