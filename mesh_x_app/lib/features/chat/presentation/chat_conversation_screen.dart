@@ -227,17 +227,33 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
+                color: AppColors.textPrimary,
               ),
             ),
-            const SizedBox(height: 1),
-            Text(
-              widget.conversation.formattedPeerHex,
-              style: const TextStyle(
-                fontSize: 11,
-                fontFamily: 'monospace',
-                color: AppColors.accent,
-                fontWeight: FontWeight.w600,
-              ),
+            const SizedBox(height: 2),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: AppColors.connected,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  widget.conversation.formattedPeerHex,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: AppColors.accent,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -412,11 +428,18 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.78,
+          maxWidth: MediaQuery.of(context).size.width * 0.80,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: isMe ? AppColors.surfaceHighlight : AppColors.surface,
+          gradient: isMe
+              ? const LinearGradient(
+                  colors: [Color(0xFF0F3644), Color(0xFF0A2632)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          color: isMe ? null : AppColors.bubblePeer,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),
@@ -424,15 +447,13 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
             bottomRight: Radius.circular(isMe ? 4 : 18),
           ),
           border: Border.all(
-            color: isMe
-                ? AppColors.accent.withValues(alpha: 0.25)
-                : AppColors.border,
-            width: 1,
+            color: isMe ? AppColors.bubbleMeBorder : AppColors.bubblePeerBorder,
+            width: 1.2,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 6,
+              color: Colors.black.withValues(alpha: isMe ? 0.35 : 0.25),
+              blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
@@ -441,16 +462,35 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (isGroup && !isMe) ...[
-              Text(
-                'Node 0x${msg.senderNodeId.toRadixString(16).padLeft(8, '0').toUpperCase()}',
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.accent,
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: AppColors.accent.withValues(alpha: 0.35),
+                    width: 0.8,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.hub_rounded, size: 10, color: AppColors.accent),
+                    const SizedBox(width: 4),
+                    Text(
+                      'NODE 0x${msg.senderNodeId.toRadixString(16).padLeft(8, '0').toUpperCase()}',
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.accent,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 3),
             ],
             if (msg.textContent.startsWith('[IMAGE:') && msg.textContent.endsWith(']'))
               _buildImageContent(msg.textContent)
@@ -459,8 +499,10 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                 msg.textContent,
                 style: const TextStyle(
                   color: AppColors.textPrimary,
-                  fontSize: 14,
-                  height: 1.4,
+                  fontSize: 14.5,
+                  height: 1.42,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: -0.1,
                 ),
               ),
             const SizedBox(height: 5),
@@ -470,24 +512,64 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                 Text(
                   _formatTime(msg.createdAt),
                   style: const TextStyle(
-                    fontSize: 10,
+                    fontSize: 10.5,
                     color: AppColors.textMuted,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
                 if (msg.isEncrypted) ...[
-                  const SizedBox(width: 5),
-                  const Icon(Icons.lock, size: 10, color: AppColors.connected),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: AppColors.connected.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: AppColors.connected.withValues(alpha: 0.3),
+                        width: 0.6,
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.lock_rounded, size: 9, color: AppColors.connected),
+                        SizedBox(width: 2),
+                        Text(
+                          'E2EE',
+                          style: TextStyle(
+                            fontSize: 8.5,
+                            color: AppColors.connected,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
                 if (!isMe && msg.rssi != null) ...[
-                  const SizedBox(width: 7),
-                  Text(
-                    '${msg.rssi} dBm',
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: AppColors.accent,
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w600,
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceElevated,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: AppColors.border, width: 0.6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.cell_tower_rounded, size: 9, color: AppColors.accent),
+                        const SizedBox(width: 3),
+                        Text(
+                          '${msg.rssi} dBm',
+                          style: const TextStyle(
+                            fontSize: 9,
+                            color: AppColors.textSecondary,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -509,6 +591,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
       final bytes = base64Decode(base64Str);
       return GestureDetector(
         onTap: () {
+          HapticFeedback.selectionClick();
           showDialog(
             context: context,
             builder: (_) => Dialog(
@@ -526,7 +609,14 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+                    icon: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.close_rounded, color: Colors.white, size: 24),
+                    ),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -538,7 +628,11 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
           borderRadius: BorderRadius.circular(12),
           child: Container(
             constraints: const BoxConstraints(maxWidth: 180, maxHeight: 180),
-            color: Colors.black26,
+            decoration: BoxDecoration(
+              color: Colors.black26,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border, width: 0.8),
+            ),
             child: Stack(
               alignment: Alignment.bottomRight,
               children: [
@@ -554,10 +648,10 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                   ),
                 ),
                 Container(
-                  margin: const EdgeInsets.all(4),
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  margin: const EdgeInsets.all(5),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
+                    color: Colors.black.withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
@@ -566,6 +660,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                       color: Colors.white,
                       fontSize: 9,
                       fontFamily: 'monospace',
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -585,31 +680,40 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
   Widget _buildDeliveryStatusIcon(MessageModel msg) {
     switch (msg.deliveryStatus) {
       case MessageDeliveryStatus.queued:
-        return const Icon(Icons.schedule, size: 12, color: AppColors.textMuted);
+        return const Icon(Icons.schedule_rounded, size: 12, color: AppColors.textMuted);
       case MessageDeliveryStatus.transmitted:
-        return const Icon(Icons.done, size: 12, color: AppColors.textSecondary);
+        return const Icon(Icons.done_rounded, size: 13, color: AppColors.textSecondary);
       case MessageDeliveryStatus.delivered:
-        return const Icon(Icons.done_all, size: 13, color: AppColors.connected);
+        return const Icon(Icons.done_all_rounded, size: 14, color: AppColors.connected);
       case MessageDeliveryStatus.failed:
         return InkWell(
           onTap: () {
             HapticFeedback.lightImpact();
             ref.read(chatRepositoryProvider).retryMessage(msg.id);
           },
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline, size: 12, color: AppColors.error),
-              SizedBox(width: 3),
-              Text(
-                'Retry',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: AppColors.error,
-                  fontWeight: FontWeight.bold,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.error.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppColors.error.withValues(alpha: 0.35), width: 0.8),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline_rounded, size: 12, color: AppColors.error),
+                SizedBox(width: 3),
+                Text(
+                  'Retry',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       case MessageDeliveryStatus.draft:
@@ -620,10 +724,19 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
   Widget _buildComposer() {
     final byteLen = utf8.encode(_textController.text).length;
 
+    Color counterColor;
+    if (byteLen > 165) {
+      counterColor = AppColors.error;
+    } else if (byteLen > 140) {
+      counterColor = AppColors.warning;
+    } else {
+      counterColor = AppColors.accent;
+    }
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
       decoration: const BoxDecoration(
-        color: AppColors.surface,
+        color: AppColors.surfaceElevated,
         border: Border(top: BorderSide(color: AppColors.border, width: 0.8)),
       ),
       child: Column(
@@ -631,44 +744,64 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
           if (_isSendingImage)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _imageProgressStatus ?? 'Transmitting photo packets...',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.accent,
-                      fontFamily: 'monospace',
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.25), width: 0.8),
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _imageProgressStatus ?? 'Transmitting photo packets...',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.accent,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              IconButton(
-                icon: const Icon(Icons.add_photo_alternate_rounded),
-                color: _isSendingImage ? AppColors.textMuted : AppColors.accent,
-                tooltip: 'Send Micro-Photo',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
-                onPressed: _isSendingImage ? null : _showImagePickerSheet,
+              Container(
+                margin: const EdgeInsets.only(bottom: 2),
+                child: IconButton(
+                  icon: const Icon(Icons.add_photo_alternate_rounded),
+                  color: _isSendingImage ? AppColors.textMuted : AppColors.accent,
+                  tooltip: 'Send Micro-Photo',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                  onPressed: _isSendingImage ? null : _showImagePickerSheet,
+                ),
               ),
               const SizedBox(width: 4),
               Expanded(
                 child: TextField(
                   controller: _textController,
                   maxLength: _maxChars,
+                  minLines: 1,
+                  maxLines: 4,
+                  textCapitalization: TextCapitalization.sentences,
                   buildCounter: (_, {required currentLength, required isFocused, maxLength}) => null,
                   style: const TextStyle(
                     color: AppColors.textPrimary,
-                    fontSize: 14,
+                    fontSize: 14.5,
                   ),
                   decoration: InputDecoration(
                     hintText: 'Transmit via LoRa mesh...',
@@ -697,31 +830,38 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-              GestureDetector(
-                onTap: _isComposing ? _sendMessage : null,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: _isComposing
-                        ? AppColors.accent
-                        : AppColors.surfaceElevated,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      if (_isComposing)
-                        BoxShadow(
-                          color: AppColors.accent.withValues(alpha: 0.35),
-                          blurRadius: 8,
-                          spreadRadius: 1,
-                        ),
-                    ],
-                  ),
-                  child: Icon(
-                    Icons.arrow_upward_rounded,
-                    color: _isComposing ? const Color(0xFF041017) : AppColors.textMuted,
-                    size: 22,
+              const SizedBox(width: 8),
+              Container(
+                margin: const EdgeInsets.only(bottom: 2),
+                child: GestureDetector(
+                  onTap: _isComposing ? _sendMessage : null,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: _isComposing
+                          ? AppColors.accent
+                          : AppColors.surface,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: _isComposing ? AppColors.accent : AppColors.border,
+                        width: 1,
+                      ),
+                      boxShadow: [
+                        if (_isComposing)
+                          BoxShadow(
+                            color: AppColors.accent.withValues(alpha: 0.4),
+                            blurRadius: 10,
+                            spreadRadius: 1,
+                          ),
+                      ],
+                    ),
+                    child: Icon(
+                      Icons.arrow_upward_rounded,
+                      color: _isComposing ? const Color(0xFF041017) : AppColors.textMuted,
+                      size: 22,
+                    ),
                   ),
                 ),
               ),
@@ -731,13 +871,20 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
             padding: const EdgeInsets.only(top: 4, right: 6),
             child: Align(
               alignment: Alignment.centerRight,
-              child: Text(
-                '$byteLen / $_maxChars B',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                  color: byteLen > 160 ? AppColors.warning : AppColors.textMuted,
-                  fontWeight: FontWeight.w600,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: counterColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '$byteLen / $_maxChars B',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontFamily: 'monospace',
+                    color: counterColor,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),

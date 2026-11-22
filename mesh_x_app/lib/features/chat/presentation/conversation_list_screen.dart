@@ -167,6 +167,8 @@ class ConversationListScreen extends ConsumerWidget {
 
   Widget _buildConversationTile(BuildContext context, ConversationModel conv) {
     final isBroadcast = conv.id == 'broadcast';
+    final isPhoto = conv.lastMessageText != null && conv.lastMessageText!.startsWith('[IMAGE:');
+    final isSos = conv.lastMessageText != null && conv.lastMessageText!.contains('EMERGENCY SOS');
 
     return Material(
       color: Colors.transparent,
@@ -180,17 +182,20 @@ class ConversationListScreen extends ConsumerWidget {
           );
         },
         borderRadius: BorderRadius.circular(18),
-        splashColor: AppColors.accent.withValues(alpha: 0.08),
+        splashColor: AppColors.accent.withValues(alpha: 0.1),
         highlightColor: AppColors.surfaceHighlight.withValues(alpha: 0.4),
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(
+              color: isSos ? AppColors.error.withValues(alpha: 0.5) : AppColors.border,
+              width: isSos ? 1.4 : 1,
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.15),
+                color: Colors.black.withValues(alpha: 0.2),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -200,33 +205,34 @@ class ConversationListScreen extends ConsumerWidget {
             children: [
               // Avatar
               Container(
-                width: 46,
-                height: 46,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
                   gradient: isBroadcast
                       ? LinearGradient(
                           colors: [
-                            AppColors.accent.withValues(alpha: 0.2),
-                            AppColors.accentMuted.withValues(alpha: 0.1),
+                            AppColors.accent.withValues(alpha: 0.25),
+                            AppColors.accentDark.withValues(alpha: 0.2),
                           ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         )
                       : null,
                   color: isBroadcast ? null : AppColors.surfaceElevated,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(15),
                   border: Border.all(
                     color: isBroadcast
-                        ? AppColors.accent.withValues(alpha: 0.3)
+                        ? AppColors.accent.withValues(alpha: 0.4)
                         : AppColors.border,
+                    width: 1.2,
                   ),
                 ),
                 child: Icon(
                   isBroadcast
                       ? Icons.cell_tower_rounded
-                      : Icons.person_outline_rounded,
+                      : Icons.hub_rounded,
                   color: isBroadcast ? AppColors.accent : AppColors.textPrimary,
-                  size: 22,
+                  size: 24,
                 ),
               ),
               const SizedBox(width: 14),
@@ -243,10 +249,10 @@ class ConversationListScreen extends ConsumerWidget {
                           child: Text(
                             conv.title,
                             style: const TextStyle(
-                              fontSize: 15,
+                              fontSize: 16,
                               fontWeight: FontWeight.w700,
                               color: AppColors.textPrimary,
-                              letterSpacing: -0.2,
+                              letterSpacing: -0.3,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -263,37 +269,57 @@ class ConversationListScreen extends ConsumerWidget {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            (conv.lastMessageText != null && conv.lastMessageText!.startsWith('[IMAGE:'))
-                                ? '📷 Photo'
-                                : (conv.lastMessageText ?? 'No messages yet'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.textSecondary,
-                              height: 1.3,
-                            ),
-                          ),
+                          child: isPhoto
+                              ? const Row(
+                                  children: [
+                                    Icon(Icons.photo_camera_rounded, size: 14, color: AppColors.accent),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Micro-Photo',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: AppColors.accent,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Text(
+                                  conv.lastMessageText ?? 'No messages yet',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    color: isSos ? AppColors.error : AppColors.textSecondary,
+                                    fontWeight: isSos ? FontWeight.w600 : FontWeight.w400,
+                                    height: 1.3,
+                                  ),
+                                ),
                         ),
                         if (conv.unreadCount > 0)
                           Container(
                             margin: const EdgeInsets.only(left: 8),
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                             decoration: BoxDecoration(
                               color: AppColors.accent,
                               borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.accent.withValues(alpha: 0.3),
+                                  blurRadius: 4,
+                                ),
+                              ],
                             ),
                             child: Text(
                               '${conv.unreadCount}',
                               style: const TextStyle(
                                 color: Color(0xFF041017),
                                 fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
