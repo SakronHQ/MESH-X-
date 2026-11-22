@@ -137,7 +137,7 @@ void sendOtaAck(uint32_t packetId, uint32_t targetNode) {
   hdr->version = MESH_PROTO_VERSION;
   hdr->packetType = OTA_PKT_ACK;
   hdr->flags = 0;
-  hdr->ttl = 3;
+  hdr->ttl = 5;
   hdr->hopCount = 0;
   hdr->packetId = packetId;
   hdr->srcNode = g_localNodeId;
@@ -216,7 +216,7 @@ void onMobileMessageSubmitted(const uint8_t* payload, size_t len) {
   hdr->version = MESH_PROTO_VERSION;
   hdr->packetType = OTA_PKT_TEXT_MSG;
   hdr->flags = flags;
-  hdr->ttl = 3;
+  hdr->ttl = 5;
   hdr->hopCount = 0;
   hdr->packetId = packetId;
   hdr->srcNode = g_localNodeId;
@@ -268,7 +268,7 @@ void onMobileSosSubmitted(const uint8_t* payload, size_t len) {
   hdr->version = MESH_PROTO_VERSION;
   hdr->packetType = OTA_PKT_SOS;
   hdr->flags = OTA_FLAG_SOS;
-  hdr->ttl = 3;
+  hdr->ttl = 5;
   hdr->hopCount = 0;
   hdr->packetId = packetId;
   hdr->srcNode = g_localNodeId;
