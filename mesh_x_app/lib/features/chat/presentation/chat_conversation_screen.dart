@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -269,6 +270,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
 
   Widget _buildMessageBubble(MessageModel msg) {
     final isMe = !msg.isIncoming;
+    final isGroup = widget.conversation.peerNodeId == 0xFFFFFFFF;
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -303,6 +305,18 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (isGroup && !isMe) ...[
+              Text(
+                'Node 0x${msg.senderNodeId.toRadixString(16).padLeft(8, '0').toUpperCase()}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.accent,
+                ),
+              ),
+              const SizedBox(height: 3),
+            ],
             Text(
               msg.textContent,
               style: const TextStyle(
@@ -387,7 +401,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
   }
 
   Widget _buildComposer() {
-    final currentLen = _textController.text.length;
+    final byteLen = utf8.encode(_textController.text).length;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -470,11 +484,11 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
             child: Align(
               alignment: Alignment.centerRight,
               child: Text(
-                '$currentLen / $_maxChars B',
+                '$byteLen / $_maxChars B',
                 style: TextStyle(
                   fontSize: 11,
                   fontFamily: 'monospace',
-                  color: currentLen > 160 ? AppColors.warning : AppColors.textMuted,
+                  color: byteLen > 160 ? AppColors.warning : AppColors.textMuted,
                   fontWeight: FontWeight.w600,
                 ),
               ),

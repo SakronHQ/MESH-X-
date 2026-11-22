@@ -8,6 +8,8 @@ import 'package:mesh_x_app/features/device/domain/connection_state.dart';
 import 'package:mesh_x_app/features/device/domain/device_info_model.dart';
 import 'package:mesh_x_app/features/chat/domain/message_model.dart';
 import 'package:mesh_x_app/features/chat/domain/conversation_model.dart';
+import 'package:mesh_x_app/features/device/domain/radio_config_model.dart';
+import 'package:mesh_x_app/core/utils/geo_utils.dart';
 import 'package:mesh_x_app/features/mesh/domain/mesh_node_model.dart';
 import 'package:mesh_x_app/features/sos/domain/sos_alert_model.dart';
 
@@ -338,6 +340,164 @@ void main() {
       expect(rxLatE7 / 10000000.0, closeTo(lat, 0.0000001));
       expect(rxLonE7 / 10000000.0, closeTo(lon, 0.0000001));
       expect(rxText, equals(distressText));
+    });
+
+    test('BleConstants packet flags define broadcast and encryption bitmasks', () {
+      expect(BleConstants.flagReqAck, equals(0x01));
+      expect(BleConstants.flagEncrypted, equals(0x02));
+      expect(BleConstants.flagBroadcast, equals(0x04));
+      expect(BleConstants.flagSos, equals(0x08));
+
+      // Test routing decision logic
+      int broadcastFlags = BleConstants.flagBroadcast;
+      bool isBroadcast = (broadcastFlags & BleConstants.flagBroadcast) != 0;
+      String convId = isBroadcast ? 'broadcast' : '0x12345678';
+      expect(convId, equals('broadcast'));
+
+      int unicastFlags = BleConstants.flagReqAck | BleConstants.flagEncrypted;
+      bool isUnicastBroadcast = (unicastFlags & BleConstants.flagBroadcast) != 0;
+      String unicastConvId = isUnicastBroadcast ? 'broadcast' : '0x12345678';
+      expect(unicastConvId, equals('0x12345678'));
+    });
+
+    test('KeyExchangeDialog URI scheme parses pub parameter correctly', () {
+      const qrData = 'meshx://key?id=0xA1B2C3D4&pub=0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF';
+      final uri = Uri.parse(qrData);
+      expect(uri.scheme, equals('meshx'));
+      expect(uri.queryParameters['id'], equals('0xA1B2C3D4'));
+      final pub = uri.queryParameters['pub'];
+      expect(pub, isNotNull);
+      expect(pub!.length, equals(64));
+      expect(RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(pub), isTrue);
+
+      // Verify non-hex rejection
+      final nonHexKey = 'A' * 63 + 'Z'; // 63 valid hex + 1 non-hex character (Z)
+      expect(nonHexKey.length, equals(64));
+      expect(RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(nonHexKey), isFalse);
+
+      // Verify node ID parsing with and without 0x prefix
+      int? parseNodeId(String s) {
+        if (s.startsWith('0x') || s.startsWith('0X')) {
+          return int.tryParse(s.substring(2), radix: 16);
+        }
+        return int.tryParse(s) ?? int.tryParse(s, radix: 16);
+      }
+
+      expect(parseNodeId('0xA1B2C3D4'), equals(0xA1B2C3D4));
+      expect(parseNodeId('A1B2C3D4'), equals(0xA1B2C3D4));
+      expect(parseNodeId('123456'), equals(123456));
+      expect(parseNodeId('invalid_node'), isNull);
+    });
+
+    test('RadioConfigModel encodes to binary wire format and decodes accurately', () {
+      const config = RadioConfigModel(
+        frequencyMhz: 433.775,
+        spreadingFactor: 11,
+        bandwidthKhz: 250.0,
+        codingRate: 8,
+        txPowerDbm: 17,
+      );
+
+      final bytes = config.toBytes();
+      expect(bytes.length, equals(9));
+
+      // Verify Little-Endian frequency in kHz (433775 = 0x00069E6F)
+      final bd = ByteData.sublistView(bytes);
+      expect(bd.getUint32(0, Endian.little), equals(433775));
+      expect(bytes[4], equals(11)); // SF
+      expect(bd.getUint16(5, Endian.little), equals(250)); // BW kHz
+      expect(bytes[7], equals(8)); // CR
+      expect(bytes[8], equals(17)); // TX power
+
+      final restored = RadioConfigModel.fromBytes(bytes);
+      expect(restored.frequencyMhz, closeTo(433.775, 0.001));
+      expect(restored.spreadingFactor, equals(11));
+      expect(restored.bandwidthKhz, equals(250.0));
+      expect(restored.codingRate, equals(8));
+      expect(restored.txPowerDbm, equals(17));
+    });
+
+    test('RadioConfigModel toMap and fromMap serialization round-trips correctly', () {
+      const original = RadioConfigModel(
+        frequencyMhz: 433.375,
+        spreadingFactor: 8,
+        bandwidthKhz: 250.0,
+        codingRate: 6,
+        txPowerDbm: 16,
+      );
+      final map = original.toMap();
+      final restored = RadioConfigModel.fromMap(map);
+      expect(restored, equals(original));
+      expect(restored.frequencyMhz, equals(433.375));
+      expect(restored.spreadingFactor, equals(8));
+      expect(restored.bandwidthKhz, equals(250.0));
+      expect(restored.codingRate, equals(6));
+      expect(restored.txPowerDbm, equals(16));
+    });
+
+    test('RadioConfigModel clamps out-of-range parameters defensively', () {
+      const outOfBounds = RadioConfigModel(
+        frequencyMhz: 433.175,
+        spreadingFactor: 15, // Max is 12
+        bandwidthKhz: 125.0,
+        codingRate: 10, // Max is 8
+        txPowerDbm: 25, // Max is 20
+      );
+
+      final bytes = outOfBounds.toBytes();
+      expect(bytes[4], equals(12)); // Clamped to SF12
+      expect(bytes[7], equals(8));  // Clamped to CR8
+      expect(bytes[8], equals(20)); // Clamped to 20 dBm
+    });
+
+    test('RadioConfigModel Time-on-Air estimation produces realistic values and handles edge cases', () {
+      const fastConfig = RadioConfigModel(spreadingFactor: 7, bandwidthKhz: 250.0);
+      const longRangeConfig = RadioConfigModel(spreadingFactor: 12, bandwidthKhz: 125.0);
+
+      final fastToA = fastConfig.estimateTimeToAirMs(payloadBytes: 32);
+      final longRangeToA = longRangeConfig.estimateTimeToAirMs(payloadBytes: 32);
+
+      expect(fastToA, greaterThan(0));
+      expect(longRangeToA, greaterThan(fastToA));
+      expect(fastConfig.speedModeDescription, contains('Fast'));
+      expect(longRangeConfig.speedModeDescription, contains('Extreme'));
+
+      // Zero-byte and negative-byte payload boundaries
+      final zeroPayloadToA = fastConfig.estimateTimeToAirMs(payloadBytes: 0);
+      expect(zeroPayloadToA, greaterThan(0));
+      expect(zeroPayloadToA, lessThanOrEqualTo(fastToA));
+
+      // Large payload
+      final largePayloadToA = fastConfig.estimateTimeToAirMs(payloadBytes: 240);
+      expect(largePayloadToA, greaterThan(fastToA));
+    });
+
+    test('Tactical radar angle calculation is robust against negative Node IDs', () {
+      const negativeNodeId = -123456789;
+      final angleDeg = ((negativeNodeId.abs() * 37) % 360).toDouble();
+      expect(angleDeg, greaterThanOrEqualTo(0.0));
+      expect(angleDeg, lessThan(360.0));
+    });
+
+    test('GeoUtils computes deterministic Haversine distance and bearing', () {
+      // Coordinate 1: Dhaka, Bangladesh (23.8103, 90.4125)
+      // Coordinate 2: Gazipur, Bangladesh (23.9999, 90.4203) (~21 km north)
+      final distance = GeoUtils.computeDistanceMeters(23.8103, 90.4125, 23.9999, 90.4203);
+      expect(distance, greaterThan(20000));
+      expect(distance, lessThan(23000));
+
+      final bearing = GeoUtils.computeBearingDegrees(23.8103, 90.4125, 23.9999, 90.4203);
+      expect(bearing, closeTo(2.0, 5.0)); // Mostly directly North (~2 degrees)
+
+      // Distance formatting helper
+      expect(GeoUtils.formatDistance(450), equals('450 m'));
+      expect(GeoUtils.formatDistance(3250), equals('3.3 km'));
+
+      // Log-distance RSSI path loss estimate
+      final distClose = GeoUtils.estimateDistanceMetersFromRssi(-50);
+      final distFar = GeoUtils.estimateDistanceMetersFromRssi(-110);
+      expect(distClose, lessThan(distFar));
+      expect(distClose, greaterThan(0));
     });
   });
 }

@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../../../shared/widgets/telemetry_card.dart';
 import 'ble_controller.dart';
+import 'widgets/radio_config_card.dart';
 
 class DeviceDashboardScreen extends ConsumerWidget {
   const DeviceDashboardScreen({super.key});
@@ -37,6 +38,10 @@ class DeviceDashboardScreen extends ConsumerWidget {
                 TelemetryCard(deviceInfo: deviceInfo),
                 const SizedBox(height: 22),
               ],
+
+              // Radio Transceiver Tuning Section
+              const RadioConfigCard(),
+              const SizedBox(height: 22),
 
               // Hardware Diagnostics Section
               const Text(

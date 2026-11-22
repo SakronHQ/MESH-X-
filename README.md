@@ -61,7 +61,6 @@ MESH-X/
 
 - **Microcontroller**: 2× ESP32 DevKit V1 (30-pin or 36-pin)
 - **LoRa Transceiver**: 2× Semtech SX1278 RA-02 (433 MHz)
-
 - **Antennas**: 2× 433 MHz Tuned Antennas (Spring coil or SMA dipole)
 - **Cables & Breadboards**: High-quality USB micro data cables, 3.3V logic wiring
 - **Mobile Devices**: Android 8.0+ or iOS 13+ devices with Bluetooth 4.2+ support

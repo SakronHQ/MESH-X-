@@ -31,6 +31,12 @@ class BleConstants {
   static const int evtNodeDiscovered = 0x84;
   static const int evtError = 0x85;
 
+  // Packet Flags
+  static const int flagReqAck = 0x01;
+  static const int flagEncrypted = 0x02;
+  static const int flagBroadcast = 0x04;
+  static const int flagSos = 0x08;
+
   // SharedPreferences Keys
   static const String prefLastDeviceId = 'mesh_x_last_device_id';
   static const String prefAutoReconnect = 'mesh_x_auto_reconnect';

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../chat/presentation/chat_controller.dart';
+import '../../device/presentation/ble_controller.dart';
+import '../../mesh/presentation/widgets/tactical_radar_map.dart';
 import '../domain/sos_alert_model.dart';
 import 'sos_controller.dart';
 
@@ -156,6 +159,83 @@ class SosAlertBanner extends ConsumerWidget {
                           const Icon(Icons.copy, size: 11, color: AppColors.accent),
                         ],
                       ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: () {
+                    HapticFeedback.mediumImpact();
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (modalCtx) => Container(
+                        height: MediaQuery.of(modalCtx).size.height * 0.85,
+                        decoration: const BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 16, 12, 10),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.radar_rounded, color: AppColors.error, size: 22),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'Tactical SOS Radar (${alert.formattedNodeHex})',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  IconButton(
+                                    icon: const Icon(Icons.close_rounded, size: 20, color: AppColors.textMuted),
+                                    onPressed: () => Navigator.of(modalCtx).pop(),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              child: TacticalRadarMap(
+                                nodes: ref.watch(discoveredNodesProvider).value ?? const [],
+                                localNodeId: ref.watch(bleControllerProvider).deviceInfo?.nodeId ?? 0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColors.error.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.radar_rounded, size: 14, color: AppColors.error),
+                        SizedBox(width: 4),
+                        Text(
+                          'Radar',
+                          style: TextStyle(
+                            color: AppColors.error,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

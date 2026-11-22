@@ -9,6 +9,7 @@
 
 typedef void (*MessageSubmitCallback)(const uint8_t* payload, size_t len);
 typedef void (*SosSubmitCallback)(const uint8_t* payload, size_t len);
+typedef void (*RadioConfigCallback)(const uint8_t* payload, size_t len);
 
 class MeshXBLE : public BLEServerCallbacks, public BLECharacteristicCallbacks {
 public:
@@ -24,7 +25,8 @@ public:
       m_pEventOutChar(nullptr),
       m_pTelemetryChar(nullptr),
       m_msgCb(nullptr),
-      m_sosCb(nullptr) {
+      m_sosCb(nullptr),
+      m_radioCfgCb(nullptr) {
   }
 
   bool begin(uint32_t nodeId, const String& fwVersion = "1.0.0") {
@@ -110,6 +112,7 @@ public:
 
   void onMessageSubmitted(MessageSubmitCallback cb) { m_msgCb = cb; }
   void onSosSubmitted(SosSubmitCallback cb) { m_sosCb = cb; }
+  void onRadioConfigSubmitted(RadioConfigCallback cb) { m_radioCfgCb = cb; }
 
   void updateDeviceInfo() {
     if (!m_pDeviceInfoChar) return;
@@ -181,26 +184,31 @@ public:
     return sendEvent(EVT_TX_STATUS, seqNum, payload, sizeof(payload));
   }
 
-  bool sendRxMessage(uint32_t srcNode, uint8_t flags, const uint8_t* msgBytes, size_t msgLen, float rssi, float snr) {
+  bool sendRxMessage(uint32_t srcNode, uint32_t packetId, uint8_t flags, const uint8_t* msgBytes, size_t msgLen, float rssi, float snr) {
     if (!m_deviceConnected) return false;
-    size_t payloadLen = 4 + 1 + 1 + 1 + msgLen;
+    size_t payloadLen = 4 + 4 + 1 + 1 + 1 + msgLen;
     if (payloadLen > BLE_MAX_PAYLOAD_SIZE) return false;
     uint8_t payload[BLE_MAX_PAYLOAD_SIZE];
 
     memcpy(payload, &srcNode, 4);
-    payload[4] = (int8_t)rssi;
-    payload[5] = (int8_t)snr;
-    payload[6] = flags;
+    memcpy(payload + 4, &packetId, 4);
+    payload[8] = (int8_t)rssi;
+    payload[9] = (int8_t)snr;
+    payload[10] = flags;
     if (msgLen > 0 && msgBytes != nullptr) {
-      memcpy(payload + 7, msgBytes, msgLen);
+      memcpy(payload + 11, msgBytes, msgLen);
     }
 
     m_outboundSeq++;
     return sendEvent(EVT_RX_MESSAGE, m_outboundSeq, payload, payloadLen);
   }
 
+  bool sendRxMessage(uint32_t srcNode, uint8_t flags, const uint8_t* msgBytes, size_t msgLen, float rssi, float snr) {
+    return sendRxMessage(srcNode, 0, flags, msgBytes, msgLen, rssi, snr);
+  }
+
   bool sendRxMessage(uint32_t srcNode, const String& text, float rssi, float snr) {
-    return sendRxMessage(srcNode, 0, (const uint8_t*)text.c_str(), text.length(), rssi, snr);
+    return sendRxMessage(srcNode, 0, 0, (const uint8_t*)text.c_str(), text.length(), rssi, snr);
   }
 
   bool sendNodeDiscovered(uint32_t nodeId, uint8_t hops, float rssi, float snr) {
@@ -275,6 +283,7 @@ private:
 
   MessageSubmitCallback m_msgCb;
   SosSubmitCallback     m_sosCb;
+  RadioConfigCallback   m_radioCfgCb;
 
   void processCommand(uint8_t cmdType, uint16_t seqNum, const uint8_t* payload, size_t len) {
     Serial.printf("[BLE CMD] Type: 0x%02X | Seq: %u | Payload: %d B\n", cmdType, seqNum, (int)len);
@@ -302,6 +311,15 @@ private:
         if (m_sosCb) {
           m_sosCb(payload, len);
         }
+        break;
+      }
+
+      case CMD_SET_RADIO_CONFIG: {
+        Serial.println(F("[BLE CMD] SET_RADIO_CONFIG received!"));
+        if (m_radioCfgCb) {
+          m_radioCfgCb(payload, len);
+        }
+        sendTxStatus(seqNum, TX_STATUS_TRANSMITTED);
         break;
       }
 

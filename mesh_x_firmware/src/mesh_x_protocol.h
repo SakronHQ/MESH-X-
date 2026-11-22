@@ -37,6 +37,12 @@
 #define EVT_NODE_DISCOVERED          0x84
 #define EVT_ERROR                    0x85
 
+// Packet Flags (OTA & BLE)
+#define OTA_FLAG_REQ_ACK             0x01
+#define OTA_FLAG_ENCRYPTED           0x02
+#define OTA_FLAG_BROADCAST           0x04
+#define OTA_FLAG_SOS                 0x08
+
 // Error Codes
 #define ERR_NONE                     0x00
 #define ERR_INVALID_MAGIC            0x01

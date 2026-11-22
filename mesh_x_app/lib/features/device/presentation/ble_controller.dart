@@ -6,6 +6,7 @@ import '../../../core/constants/ble_constants.dart';
 import '../data/ble_repository.dart';
 import '../domain/connection_state.dart';
 import '../domain/device_info_model.dart';
+import '../domain/radio_config_model.dart';
 
 final bleRepositoryProvider = Provider<BleRepository>((ref) {
   return BleRepository();
@@ -18,6 +19,7 @@ class BleState {
   final bool isScanning;
   final String? errorMessage;
   final bool autoReconnect;
+  final RadioConfigModel radioConfig;
 
   const BleState({
     this.status = BleConnectionStatus.disconnected,
@@ -26,6 +28,7 @@ class BleState {
     this.isScanning = false,
     this.errorMessage,
     this.autoReconnect = true,
+    this.radioConfig = const RadioConfigModel(),
   });
 
   BleState copyWith({
@@ -35,6 +38,7 @@ class BleState {
     bool? isScanning,
     String? errorMessage,
     bool? autoReconnect,
+    RadioConfigModel? radioConfig,
   }) {
     return BleState(
       status: status ?? this.status,
@@ -43,6 +47,7 @@ class BleState {
       isScanning: isScanning ?? this.isScanning,
       errorMessage: errorMessage,
       autoReconnect: autoReconnect ?? this.autoReconnect,
+      radioConfig: radioConfig ?? this.radioConfig,
     );
   }
 
@@ -74,6 +79,10 @@ class BleController extends Notifier<BleState> {
   }
 
   void _init() {
+    _repository.loadRadioConfig().then((cfg) {
+      state = state.copyWith(radioConfig: cfg);
+    });
+
     _lifecycleListener = AppLifecycleListener(
       onResume: () {
         if (state.status == BleConnectionStatus.disconnected && state.autoReconnect) {
@@ -235,6 +244,12 @@ class BleController extends Notifier<BleState> {
 
   Future<void> sendPing() async {
     await _repository.sendCommand(BleConstants.cmdPing);
+  }
+
+  Future<bool> updateRadioConfig(RadioConfigModel newConfig) async {
+    state = state.copyWith(radioConfig: newConfig);
+    final success = await _repository.sendRadioConfig(newConfig);
+    return success;
   }
 
   void toggleAutoReconnect(bool enabled) {

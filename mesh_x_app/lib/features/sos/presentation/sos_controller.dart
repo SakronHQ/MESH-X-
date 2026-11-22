@@ -31,3 +31,31 @@ final activeSosAlertProvider =
     NotifierProvider<ActiveSosAlertNotifier, SosAlertModel?>(() {
   return ActiveSosAlertNotifier();
 });
+
+class SosAlertHistoryNotifier extends Notifier<List<SosAlertModel>> {
+  @override
+  List<SosAlertModel> build() {
+    ref.listen(sosAlertStreamProvider, (prev, next) {
+      if (next.hasValue && next.value != null) {
+        addAlert(next.value!);
+      }
+    });
+    return const [];
+  }
+
+  void addAlert(SosAlertModel alert) {
+    state = [
+      alert,
+      ...state.where((a) => a.packetId != alert.packetId),
+    ];
+  }
+
+  void clearAlerts() {
+    state = const [];
+  }
+}
+
+final sosHistoryProvider =
+    NotifierProvider<SosAlertHistoryNotifier, List<SosAlertModel>>(() {
+  return SosAlertHistoryNotifier();
+});

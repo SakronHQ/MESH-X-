@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../chat/presentation/chat_controller.dart';
 import '../../device/presentation/ble_controller.dart';
+import 'widgets/camera_qr_scanner_dialog.dart';
 
 class KeyExchangeDialog extends ConsumerStatefulWidget {
   final int? peerNodeId;
@@ -103,16 +104,18 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
                     ),
                   ),
                   const SizedBox(width: 10),
-                  const Text(
-                    'Cryptography Vault',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                      letterSpacing: -0.3,
+                  const Expanded(
+                    child: Text(
+                      'Cryptography Vault',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                        letterSpacing: -0.3,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  const Spacer(),
                   IconButton(
                     icon: const Icon(Icons.close_rounded, color: AppColors.textMuted, size: 20),
                     onPressed: () => Navigator.of(context).pop(),
@@ -289,10 +292,39 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
           ),
           const SizedBox(height: 4),
           const Text(
-            'Paste peer\'s 64-hex public key to enable ChaCha20-Poly1305 end-to-end encryption.',
+            'Scan peer\'s QR code or paste their 64-hex public key to enable ChaCha20-Poly1305 end-to-end encryption.',
             style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.35),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+
+          // Scan QR Button
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.accent,
+              side: const BorderSide(color: AppColors.accent, width: 1.2),
+              minimumSize: const Size(double.infinity, 44),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+            label: const Text(
+              'Scan Contact QR Code with Camera',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            ),
+            onPressed: () async {
+              HapticFeedback.lightImpact();
+              final result = await CameraQrScannerDialog.show(context);
+              if (result != null) {
+                setState(() {
+                  _keyInputController.text = result.publicKeyHex;
+                  if (result.nodeIdHex != null && result.nodeIdHex!.isNotEmpty) {
+                    _nodeIdInputController.text = result.nodeIdHex!;
+                  }
+                  _statusMessage = 'Scanned successfully! Ready to activate E2EE encryption.';
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 14),
 
           // Node ID Field
           TextField(
@@ -327,15 +359,37 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
               labelStyle: const TextStyle(color: AppColors.textMuted, fontSize: 12),
               filled: true,
               fillColor: AppColors.surfaceElevated,
-              suffixIcon: IconButton(
-                icon: const Icon(Icons.paste_rounded, size: 18, color: AppColors.accent),
-                tooltip: 'Paste from Clipboard',
-                onPressed: () async {
-                  final data = await Clipboard.getData('text/plain');
-                  if (data != null && data.text != null) {
-                    _keyInputController.text = data.text!.trim();
-                  }
-                },
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_scanner_rounded, size: 18, color: AppColors.accent),
+                    tooltip: 'Scan QR Code',
+                    onPressed: () async {
+                      HapticFeedback.lightImpact();
+                      final result = await CameraQrScannerDialog.show(context);
+                      if (result != null) {
+                        setState(() {
+                          _keyInputController.text = result.publicKeyHex;
+                          if (result.nodeIdHex != null && result.nodeIdHex!.isNotEmpty) {
+                            _nodeIdInputController.text = result.nodeIdHex!;
+                          }
+                          _statusMessage = 'Scanned successfully! Ready to activate E2EE encryption.';
+                        });
+                      }
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.paste_rounded, size: 18, color: AppColors.accent),
+                    tooltip: 'Paste from Clipboard',
+                    onPressed: () async {
+                      final data = await Clipboard.getData('text/plain');
+                      if (data != null && data.text != null) {
+                        _keyInputController.text = data.text!.trim();
+                      }
+                    },
+                  ),
+                ],
               ),
             ),
           ),
@@ -391,13 +445,25 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
   }
 
   Future<void> _saveContactKey() async {
-    final keyHex = _keyInputController.text.replaceAll(':', '').replaceAll(' ', '').trim();
+    var rawText = _keyInputController.text.trim();
+    if (rawText.startsWith('meshx://')) {
+      final uri = Uri.tryParse(rawText);
+      if (uri != null) {
+        final pub = uri.queryParameters['pub'];
+        final id = uri.queryParameters['id'];
+        if (pub != null) rawText = pub;
+        if (id != null && _nodeIdInputController.text.isEmpty) {
+          _nodeIdInputController.text = id;
+        }
+      }
+    }
+    final keyHex = rawText.replaceAll(':', '').replaceAll(' ', '').trim().toLowerCase();
     final nodeStr = _nodeIdInputController.text.trim();
 
-    if (keyHex.length != 64) {
+    if (keyHex.length != 64 || !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(keyHex)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Invalid key length: ${keyHex.length} chars (expected 64).'),
+          content: Text('Invalid key: Expected 64 hexadecimal characters, got ${keyHex.length}.'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -409,6 +475,7 @@ class _KeyExchangeDialogState extends ConsumerState<KeyExchangeDialog>
       targetNodeId = int.tryParse(nodeStr.substring(2), radix: 16);
     } else {
       targetNodeId = int.tryParse(nodeStr);
+      targetNodeId ??= int.tryParse(nodeStr, radix: 16);
     }
 
     if (targetNodeId == null || targetNodeId == 0) {

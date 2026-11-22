@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/ble_constants.dart';
 import '../../../core/utils/crc16.dart';
 import '../domain/device_info_model.dart';
+import '../domain/radio_config_model.dart';
 
 class BleRepository {
   BluetoothDevice? _connectedDevice;
@@ -258,6 +259,30 @@ class BleRepository {
     }
 
     _eventController.add(raw);
+  }
+
+  Future<bool> sendRadioConfig(RadioConfigModel config) async {
+    await saveRadioConfig(config);
+    return sendCommand(BleConstants.cmdSetRadioConfig, config.toBytes());
+  }
+
+  static const String prefRadioConfig = 'mesh_x_radio_config';
+
+  Future<void> saveRadioConfig(RadioConfigModel config) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(prefRadioConfig, jsonEncode(config.toMap()));
+  }
+
+  Future<RadioConfigModel> loadRadioConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = prefs.getString(prefRadioConfig);
+    if (jsonStr != null) {
+      try {
+        final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+        return RadioConfigModel.fromMap(map);
+      } catch (_) {}
+    }
+    return const RadioConfigModel();
   }
 
   Future<String?> getSavedDeviceId() async {

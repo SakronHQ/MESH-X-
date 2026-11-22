@@ -176,7 +176,7 @@ class ChatRepository {
         wirePayload = Uint8List.fromList(utf8.encode(textContent));
       }
     } else {
-      flags = 0x00; // Broadcast is cleartext
+      flags = BleConstants.flagBroadcast; // 0x04: Broadcast is cleartext flood
       wirePayload = Uint8List.fromList(utf8.encode(textContent));
     }
 
@@ -321,7 +321,7 @@ class ChatRepository {
         wirePayload = Uint8List.fromList(utf8.encode(msg.textContent));
       }
     } else {
-      flags = 0x00;
+      flags = BleConstants.flagBroadcast;
       wirePayload = Uint8List.fromList(utf8.encode(msg.textContent));
     }
 
@@ -357,17 +357,50 @@ class ChatRepository {
     final db = await AppDatabase.instance;
 
     // 1. Inbound Received LoRa Message: EVT_RX_MESSAGE (0x80)
-    // Payload: [SRC_NODE: 4B][RSSI: 1B (int8)][SNR: 1B (int8)][FLAGS: 1B][DATA]
+    // Payload v1: [SRC_NODE: 4B][RSSI: 1B][SNR: 1B][FLAGS: 1B][DATA] (>= 7 B)
+    // Payload v2: [SRC_NODE: 4B][PACKET_ID: 4B][RSSI: 1B][SNR: 1B][FLAGS: 1B][DATA] (>= 11 B)
     if (eventType == BleConstants.evtRxMessage && payload.length >= 7) {
       final bd = ByteData.sublistView(payload);
-      final srcNode = bd.getUint32(0, Endian.little);
-      final rssi = bd.getInt8(4);
-      final snr = bd.getInt8(5).toDouble();
-      final flags = bd.getUint8(6);
-      final rawMsg = payload.sublist(7);
+      final int srcNode;
+      final int packetId;
+      final int rssi;
+      final double snr;
+      final int flags;
+      final Uint8List rawMsg;
+
+      if (payload.length >= 11) {
+        srcNode = bd.getUint32(0, Endian.little);
+        packetId = bd.getUint32(4, Endian.little);
+        rssi = bd.getInt8(8);
+        snr = bd.getInt8(9).toDouble();
+        flags = bd.getUint8(10);
+        rawMsg = payload.sublist(11);
+      } else {
+        srcNode = bd.getUint32(0, Endian.little);
+        packetId = 0;
+        rssi = bd.getInt8(4);
+        snr = bd.getInt8(5).toDouble();
+        flags = bd.getUint8(6);
+        rawMsg = payload.sublist(7);
+      }
+
+      // Deduplicate incoming packets on mobile SQLite database
+      if (packetId != 0) {
+        final duplicate = await db.query(
+          'messages',
+          where: 'packet_id = ? AND sender_node_id = ?',
+          whereArgs: [packetId, srcNode],
+          limit: 1,
+        );
+        if (duplicate.isNotEmpty) {
+          return; // Duplicate frame suppressed
+        }
+      }
+
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final isEncrypted = (flags & 0x02) != 0;
-      final isSos = (flags & 0x08) != 0;
+      final isEncrypted = (flags & BleConstants.flagEncrypted) != 0;
+      final isSos = (flags & BleConstants.flagSos) != 0;
+      final isBroadcast = (flags & BleConstants.flagBroadcast) != 0;
 
       // Handle SOS Distress Packets
       if (isSos) {
@@ -389,7 +422,7 @@ class ChatRepository {
         }
 
         final alert = SosAlertModel(
-          packetId: 0,
+          packetId: packetId,
           senderNodeId: srcNode,
           latitude: lat,
           longitude: lon,
@@ -412,7 +445,7 @@ class ChatRepository {
         final msgId = _uuid.v4();
         final incomingMsg = MessageModel(
           id: msgId,
-          packetId: 0,
+          packetId: packetId,
           conversationId: 'broadcast',
           senderNodeId: srcNode,
           recipientNodeId: 0xFFFFFFFF,
@@ -450,40 +483,50 @@ class ChatRepository {
         text = utf8.decode(rawMsg);
       }
 
-      final convId =
-          '0x${srcNode.toRadixString(16).padLeft(8, '0').toUpperCase()}';
+      final convId = isBroadcast
+          ? 'broadcast'
+          : '0x${srcNode.toRadixString(16).padLeft(8, '0').toUpperCase()}';
 
-      // Ensure conversation exists
-      final existingConvs =
-          await db.query('conversations', where: 'id = ?', whereArgs: [convId]);
-      if (existingConvs.isEmpty) {
-        await db.insert('conversations', {
-          'id': convId,
-          'title': 'Node $convId',
-          'peer_node_id': srcNode,
-          'last_message_text': text,
-          'last_message_timestamp': now,
-          'unread_count': 1,
-          'is_pinned': 0,
-          'created_at': now,
-          'updated_at': now,
-        });
-      } else {
+      if (isBroadcast) {
+        // Update default broadcast conversation
         await db.rawUpdate('''
           UPDATE conversations 
           SET last_message_text = ?, last_message_timestamp = ?, unread_count = unread_count + 1, updated_at = ?
           WHERE id = ?
-        ''', [text, now, now, convId]);
+        ''', [text, now, now, 'broadcast']);
+      } else {
+        // Ensure direct conversation exists
+        final existingConvs =
+            await db.query('conversations', where: 'id = ?', whereArgs: [convId]);
+        if (existingConvs.isEmpty) {
+          await db.insert('conversations', {
+            'id': convId,
+            'title': 'Node $convId',
+            'peer_node_id': srcNode,
+            'last_message_text': text,
+            'last_message_timestamp': now,
+            'unread_count': 1,
+            'is_pinned': 0,
+            'created_at': now,
+            'updated_at': now,
+          });
+        } else {
+          await db.rawUpdate('''
+            UPDATE conversations 
+            SET last_message_text = ?, last_message_timestamp = ?, unread_count = unread_count + 1, updated_at = ?
+            WHERE id = ?
+          ''', [text, now, now, convId]);
+        }
       }
 
       // Insert incoming message
       final msgId = _uuid.v4();
       final incomingMsg = MessageModel(
         id: msgId,
-        packetId: 0,
+        packetId: packetId,
         conversationId: convId,
         senderNodeId: srcNode,
-        recipientNodeId: 0,
+        recipientNodeId: isBroadcast ? 0xFFFFFFFF : 0,
         textContent: text,
         deliveryStatus: MessageDeliveryStatus.delivered,
         isIncoming: true,
@@ -508,12 +551,12 @@ class ChatRepository {
               ? MessageDeliveryStatus.failed
               : MessageDeliveryStatus.queued);
 
-      // Update most recent queued message
+      // Update oldest queued message (FIFO radio queue)
       final latest = await db.query(
         'messages',
         where: 'delivery_status = ?',
         whereArgs: [MessageDeliveryStatus.queued.toDbString()],
-        orderBy: 'created_at DESC',
+        orderBy: 'created_at ASC',
         limit: 1,
       );
 

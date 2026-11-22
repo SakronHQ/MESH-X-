@@ -11,7 +11,7 @@ def calculate_lora_airtime(
     payload_bytes: int,
     sf: int = 9,
     bw_khz: float = 125.0,
-    cr: int = 1,          # 1 = 4/5, 2 = 4/6, 3 = 4/7, 4 = 4/8
+    cr: int = 3,          # 1 = 4/5, 2 = 4/6, 3 = 4/7 (matches LORA_CR 7 in mesh_x_config.h), 4 = 4/8
     preamble_symbols: int = 8,
     explicit_header: bool = True,
     low_data_rate_opt: bool = False,
@@ -56,7 +56,7 @@ def print_audit_report():
     print("=" * 72)
     print("              MESH-X LoRa AIRTIME & DUTY CYCLE AUDIT REPORT             ")
     print("=" * 72)
-    print("RF Parameters: 433.175 MHz | SF9 | BW 125.0 kHz | CR 4/5 | Preamble 8")
+    print("RF Parameters: 433.175 MHz | SF9 | BW 125.0 kHz | CR 4/7 | Preamble 8")
     print("Legal Limit  : 1.0% Duty Cycle (Max 36.0 seconds TX per hour = 36,000 ms/hr)")
     print("-" * 72)
     print(f"{'Packet Type':<22} | {'Payload':<7} | {'Airtime (ms)':<12} | {'Max Pkts/Hour':<14} | {'Min Interval':<12}")
@@ -75,7 +75,7 @@ def print_audit_report():
     duty_cycle_budget_ms_per_hour = 36000.0  # 1% of 3600 seconds = 36 seconds = 36,000 ms
 
     for name, size in scenarios:
-        res = calculate_lora_airtime(size, sf=9, bw_khz=125.0, cr=1, preamble_symbols=8)
+        res = calculate_lora_airtime(size, sf=9, bw_khz=125.0, cr=3, preamble_symbols=8)
         toa = res["total_airtime_ms"]
         max_pkts_hr = int(duty_cycle_budget_ms_per_hour / toa)
         min_interval_sec = round((toa / 10.0), 2)  # For 1% duty cycle: interval = ToA / 0.01 = ToA * 100

@@ -7,14 +7,24 @@ import '../../chat/presentation/chat_conversation_screen.dart';
 import '../../device/presentation/ble_controller.dart';
 import '../domain/mesh_node_model.dart';
 import 'key_exchange_dialog.dart';
+import 'widgets/mesh_topology_graph.dart';
+import 'widgets/tactical_radar_map.dart';
 
-class MeshNodesScreen extends ConsumerWidget {
+class MeshNodesScreen extends ConsumerStatefulWidget {
   const MeshNodesScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MeshNodesScreen> createState() => _MeshNodesScreenState();
+}
+
+class _MeshNodesScreenState extends ConsumerState<MeshNodesScreen> {
+  int _viewMode = 0; // 0: List, 1: Topology Graph, 2: Tactical Radar
+
+  @override
+  Widget build(BuildContext context) {
     final nodesAsync = ref.watch(discoveredNodesProvider);
     final bleState = ref.watch(bleControllerProvider);
+    final localNodeId = bleState.deviceInfo?.nodeId ?? 0;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -53,112 +63,196 @@ class MeshNodesScreen extends ConsumerWidget {
           const SizedBox(width: 8),
         ],
       ),
-      body: nodesAsync.when(
-        data: (nodes) {
-          final directCount = nodes.where((n) => n.isDirectNeighbor).length;
-          final relayedCount = nodes.length - directCount;
+      body: Column(
+        children: [
+          // View Mode Selector Tabs
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceElevated,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                _buildViewTab(0, Icons.view_list_rounded, 'Node List'),
+                _buildViewTab(1, Icons.hub_rounded, 'Visual Graph'),
+                _buildViewTab(2, Icons.radar_rounded, 'Tactical Radar'),
+              ],
+            ),
+          ),
 
-          return Column(
+          // Main View Content
+          Expanded(
+            child: _buildMainContent(nodesAsync, localNodeId, bleState),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainContent(
+    AsyncValue<List<MeshNodeModel>> nodesAsync,
+    int localNodeId,
+    dynamic bleState,
+  ) {
+    final nodes = nodesAsync.value ?? const [];
+
+    if (_viewMode == 1) {
+      return MeshTopologyGraph(
+        nodes: nodes,
+        localNodeId: localNodeId,
+      );
+    } else if (_viewMode == 2) {
+      return TacticalRadarMap(
+        nodes: nodes,
+        localNodeId: localNodeId,
+      );
+    }
+
+    return _buildListView(nodes, bleState, isLoading: nodesAsync.isLoading);
+  }
+
+  Widget _buildViewTab(int index, IconData icon, String label) {
+    final isSelected = _viewMode == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          if (_viewMode != index) {
+            HapticFeedback.selectionClick();
+            setState(() => _viewMode = index);
+          }
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          decoration: BoxDecoration(
+            color: isSelected ? AppColors.surfaceHighlight : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+            border: isSelected ? Border.all(color: AppColors.border) : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Summary Metric Cards
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _buildMetricCard(
-                        title: 'Discovered',
-                        value: '${nodes.length}',
-                        icon: Icons.hub_rounded,
-                        color: AppColors.accent,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildMetricCard(
-                        title: 'Direct (1 Hop)',
-                        value: '$directCount',
-                        icon: Icons.near_me_rounded,
-                        color: AppColors.connected,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildMetricCard(
-                        title: 'Relayed (>1 Hop)',
-                        value: '$relayedCount',
-                        icon: Icons.alt_route_rounded,
-                        color: AppColors.warning,
-                      ),
-                    ),
-                  ],
-                ),
+              Icon(
+                icon,
+                size: 15,
+                color: isSelected ? AppColors.accent : AppColors.textMuted,
               ),
-
-              // Status Banner
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.border),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: isSelected ? AppColors.accent : AppColors.textMuted,
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      bleState.isConnected
-                          ? Icons.sensors_rounded
-                          : Icons.sensors_off_rounded,
-                      size: 18,
-                      color: bleState.isConnected
-                          ? AppColors.connected
-                          : AppColors.textMuted,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        bleState.isConnected
-                            ? 'Mesh Radio Active: Autonomous multi-hop forwarding & deduplication enabled.'
-                            : 'Hardware Node Disconnected: Connect via BLE to discover mesh peers.',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                          height: 1.3,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Discovered Nodes List
-              Expanded(
-                child: nodes.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-                        itemCount: nodes.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final node = nodes[index];
-                          return _buildNodeCard(context, ref, node);
-                        },
-                      ),
               ),
             ],
-          );
-        },
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: AppColors.accent),
-        ),
-        error: (err, _) => Center(
-          child: Text(
-            'Error loading mesh nodes: $err',
-            style: const TextStyle(color: AppColors.error),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildListView(List<MeshNodeModel> nodes, dynamic bleState, {bool isLoading = false}) {
+    final directCount = nodes.where((n) => n.isDirectNeighbor).length;
+    final relayedCount = nodes.length - directCount;
+
+    return Column(
+      children: [
+        // Summary Metric Cards
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildMetricCard(
+                  title: 'Discovered',
+                  value: '${nodes.length}',
+                  icon: Icons.hub_rounded,
+                  color: AppColors.accent,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildMetricCard(
+                  title: 'Direct (1 Hop)',
+                  value: '$directCount',
+                  icon: Icons.near_me_rounded,
+                  color: AppColors.connected,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildMetricCard(
+                  title: 'Relayed (>1 Hop)',
+                  value: '$relayedCount',
+                  icon: Icons.alt_route_rounded,
+                  color: AppColors.warning,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Status Banner
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                bleState.isConnected
+                    ? Icons.sensors_rounded
+                    : Icons.sensors_off_rounded,
+                size: 18,
+                color: bleState.isConnected
+                    ? AppColors.connected
+                    : AppColors.textMuted,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  bleState.isConnected
+                      ? 'Mesh Radio Active: Autonomous multi-hop forwarding & deduplication enabled.'
+                      : 'Hardware Node Disconnected: Connect via BLE to discover mesh peers.',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Discovered Nodes List
+        Expanded(
+          child: (isLoading && nodes.isEmpty)
+              ? const Center(
+                  child: CircularProgressIndicator(color: AppColors.accent),
+                )
+              : nodes.isEmpty
+                  ? _buildEmptyState()
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
+                      itemCount: nodes.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final node = nodes[index];
+                        return _buildNodeCard(context, ref, node);
+                      },
+                    ),
+        ),
+      ],
     );
   }
 

@@ -373,6 +373,22 @@ class ConversationListScreen extends ConsumerWidget {
                   nodeId = int.tryParse(text);
                 }
                 if (nodeId != null) {
+                  if (nodeId == 0xFFFFFFFF) {
+                    Navigator.of(ctx).pop();
+                    final broadcastConv = ConversationModel(
+                      id: 'broadcast',
+                      title: 'Public Mesh Broadcast',
+                      peerNodeId: 0xFFFFFFFF,
+                      createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                      updatedAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                    );
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ChatConversationScreen(conversation: broadcastConv),
+                      ),
+                    );
+                    return;
+                  }
                   final hexStr = '0x${nodeId.toRadixString(16).padLeft(8, '0').toUpperCase()}';
                   final conv = ConversationModel(
                     id: hexStr,
