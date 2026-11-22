@@ -268,7 +268,9 @@ class ConversationListScreen extends ConsumerWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            conv.lastMessageText ?? 'No messages yet',
+                            (conv.lastMessageText != null && conv.lastMessageText!.startsWith('[IMAGE:'))
+                                ? '📷 Photo'
+                                : (conv.lastMessageText ?? 'No messages yet'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

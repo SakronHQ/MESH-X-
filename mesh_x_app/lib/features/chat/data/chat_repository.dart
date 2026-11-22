@@ -37,6 +37,10 @@ class ChatRepository {
       StreamController<SosAlertModel>.broadcast();
   Stream<SosAlertModel> get sosAlertStream => _sosAlertStreamController.stream;
 
+  // In-memory buffer for assembling incoming multi-chunk micro images
+  final Map<String, Map<int, String>> _incomingImageBuffers = {};
+  final Map<String, int> _incomingImageTotals = {};
+
   ChatRepository(
     this._bleRepository, [
     CryptoService? cryptoService,
@@ -222,6 +226,104 @@ class ChatRepository {
     await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
 
     return message;
+  }
+
+  /// Compresses and sends a micro-image as multi-packet LoRa chunks
+  Future<void> sendImage({
+    required String conversationId,
+    required int recipientNodeId,
+    required Uint8List imageBytes,
+    required int localNodeId,
+    void Function(int current, int total)? onProgress,
+  }) async {
+    final db = await AppDatabase.instance;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final messageId = _uuid.v4();
+    final base64Data = base64Encode(imageBytes);
+
+    // Save full image locally in SQLite
+    final localMsg = MessageModel(
+      id: messageId,
+      packetId: Random().nextInt(0x7FFFFFFF),
+      conversationId: conversationId,
+      senderNodeId: localNodeId,
+      recipientNodeId: recipientNodeId,
+      textContent: '[IMAGE:$base64Data]',
+      deliveryStatus: MessageDeliveryStatus.transmitted,
+      isIncoming: false,
+      isEncrypted: false,
+      createdAt: now,
+    );
+    await db.insert('messages', localMsg.toMap());
+
+    await db.update(
+      'conversations',
+      {
+        'last_message_text': '📷 Photo',
+        'last_message_timestamp': now,
+        'updated_at': now,
+      },
+      where: 'id = ?',
+      whereArgs: [conversationId],
+    );
+    _notifyUpdates(conversationId);
+
+    // Chunk base64 into safe ~140 character RF packets
+    const chunkSize = 140;
+    final totalChunks = (base64Data.length / chunkSize).ceil();
+    final imageId = Random().nextInt(0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+    final isBroadcast = recipientNodeId == 0xFFFFFFFF;
+    final flags = isBroadcast ? BleConstants.flagBroadcast : 0x00;
+
+    for (int i = 0; i < totalChunks; i++) {
+      final start = i * chunkSize;
+      final end = (start + chunkSize > base64Data.length) ? base64Data.length : start + chunkSize;
+      final chunkSlice = base64Data.substring(start, end);
+      final chunkText =
+          'IMG:$imageId:${i.toRadixString(16).padLeft(2, '0')}:${totalChunks.toRadixString(16).padLeft(2, '0')}:$chunkSlice';
+
+      final wirePayload = Uint8List.fromList(utf8.encode(chunkText));
+      final packetId = Random().nextInt(0x7FFFFFFF);
+
+      final payload = Uint8List(4 + 4 + 1 + wirePayload.length);
+      final bd = ByteData.sublistView(payload);
+      bd.setUint32(0, packetId, Endian.little);
+      bd.setUint32(4, recipientNodeId, Endian.little);
+      bd.setUint8(8, flags);
+      payload.setRange(9, 9 + wirePayload.length, wirePayload);
+
+      await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
+      onProgress?.call(i + 1, totalChunks);
+
+      // Brief pacing to prevent RF collision
+      if (i < totalChunks - 1) {
+        await Future.delayed(const Duration(milliseconds: 180));
+      }
+    }
+  }
+
+  String? _reassembleImageChunk({
+    required int senderNodeId,
+    required String imageId,
+    required int chunkIdx,
+    required int totalChunks,
+    required String chunkData,
+  }) {
+    final key = '$senderNodeId-$imageId';
+    final buffer = _incomingImageBuffers.putIfAbsent(key, () => {});
+    _incomingImageTotals[key] = totalChunks;
+    buffer[chunkIdx] = chunkData;
+
+    if (buffer.length == totalChunks) {
+      final sortedChunks = List.generate(totalChunks, (i) => buffer[i] ?? '');
+      if (sortedChunks.any((c) => c.isEmpty)) return null;
+
+      final fullBase64 = sortedChunks.join();
+      _incomingImageBuffers.remove(key);
+      _incomingImageTotals.remove(key);
+      return fullBase64;
+    }
+    return null;
   }
 
   Future<void> submitSos({
@@ -483,9 +585,37 @@ class ChatRepository {
         text = utf8.decode(rawMsg);
       }
 
+      // Check if incoming text is an incoming LoRa micro-image chunk
+      if (text.startsWith('IMG:')) {
+        final parts = text.split(':');
+        if (parts.length >= 5) {
+          final imgId = parts[1];
+          final chunkIdx = int.tryParse(parts[2], radix: 16) ?? 0;
+          final totalChunks = int.tryParse(parts[3], radix: 16) ?? 1;
+          final chunkData = parts.sublist(4).join(':');
+
+          final fullBase64 = _reassembleImageChunk(
+            senderNodeId: srcNode,
+            imageId: imgId,
+            chunkIdx: chunkIdx,
+            totalChunks: totalChunks,
+            chunkData: chunkData,
+          );
+
+          if (fullBase64 != null) {
+            text = '[IMAGE:$fullBase64]';
+          } else {
+            // Partial image chunk buffered; wait for all chunks before committing
+            return;
+          }
+        }
+      }
+
       final convId = isBroadcast
           ? 'broadcast'
           : '0x${srcNode.toRadixString(16).padLeft(8, '0').toUpperCase()}';
+
+      final summaryText = text.startsWith('[IMAGE:') ? '📷 Photo' : text;
 
       if (isBroadcast) {
         // Update default broadcast conversation
@@ -493,7 +623,7 @@ class ChatRepository {
           UPDATE conversations 
           SET last_message_text = ?, last_message_timestamp = ?, unread_count = unread_count + 1, updated_at = ?
           WHERE id = ?
-        ''', [text, now, now, 'broadcast']);
+        ''', [summaryText, now, now, 'broadcast']);
       } else {
         // Ensure direct conversation exists
         final existingConvs =
@@ -503,7 +633,7 @@ class ChatRepository {
             'id': convId,
             'title': 'Node $convId',
             'peer_node_id': srcNode,
-            'last_message_text': text,
+            'last_message_text': summaryText,
             'last_message_timestamp': now,
             'unread_count': 1,
             'is_pinned': 0,
@@ -515,7 +645,7 @@ class ChatRepository {
             UPDATE conversations 
             SET last_message_text = ?, last_message_timestamp = ?, unread_count = unread_count + 1, updated_at = ?
             WHERE id = ?
-          ''', [text, now, now, convId]);
+          ''', [summaryText, now, now, convId]);
         }
       }
 

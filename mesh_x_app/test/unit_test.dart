@@ -499,5 +499,53 @@ void main() {
       expect(distClose, lessThan(distFar));
       expect(distClose, greaterThan(0));
     });
+
+    test('LoRa Micro-Image fragmentation and reassembly works deterministically', () {
+      // Simulate raw micro-JPEG bytes (~1.5 KB)
+      final dummyBytes = Uint8List.fromList(List.generate(1500, (i) => (i * 7) % 256));
+      final base64String = base64Encode(dummyBytes);
+
+      const chunkSize = 140;
+      final totalChunks = (base64String.length / chunkSize).ceil();
+      const imageId = 'A7';
+
+      // 1. Fragmentation
+      final transmittedChunks = <String>[];
+      for (int i = 0; i < totalChunks; i++) {
+        final start = i * chunkSize;
+        final end = (start + chunkSize > base64String.length) ? base64String.length : start + chunkSize;
+        final slice = base64String.substring(start, end);
+        final chunkText =
+            'IMG:$imageId:${i.toRadixString(16).padLeft(2, '0')}:${totalChunks.toRadixString(16).padLeft(2, '0')}:$slice';
+        transmittedChunks.add(chunkText);
+      }
+
+      expect(transmittedChunks.length, equals(totalChunks));
+      expect(transmittedChunks.every((c) => c.startsWith('IMG:A7:')), isTrue);
+
+      // 2. Reassembly simulation (even if chunks arrive out of order)
+      final reassembledMap = <int, String>{};
+      final shuffledIndices = List.generate(totalChunks, (i) => i)..shuffle();
+
+      String? finalReassembled;
+      for (final idx in shuffledIndices) {
+        final packet = transmittedChunks[idx];
+        final parts = packet.split(':');
+        final chunkIdx = int.parse(parts[2], radix: 16);
+        final numChunks = int.parse(parts[3], radix: 16);
+        final data = parts.sublist(4).join(':');
+
+        reassembledMap[chunkIdx] = data;
+        if (reassembledMap.length == numChunks) {
+          final sorted = List.generate(numChunks, (i) => reassembledMap[i]!);
+          finalReassembled = sorted.join();
+        }
+      }
+
+      expect(finalReassembled, isNotNull);
+      expect(finalReassembled, equals(base64String));
+      final decodedBytes = base64Decode(finalReassembled!);
+      expect(decodedBytes, equals(dummyBytes));
+    });
   });
 }

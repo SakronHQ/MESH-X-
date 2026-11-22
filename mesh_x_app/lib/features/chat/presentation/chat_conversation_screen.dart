@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../../device/domain/connection_state.dart';
@@ -24,6 +25,8 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
   bool _isComposing = false;
+  bool _isSendingImage = false;
+  String? _imageProgressStatus;
   static const int _maxChars = 180;
 
   @override
@@ -62,6 +65,138 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
     );
 
     _scrollToBottom();
+  }
+
+  void _showImagePickerSheet() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Send Micro-Photo over LoRa',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Images are compressed to ~1.5 KB on-device for 433 MHz transmission.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded, color: AppColors.accent),
+                ),
+                title: const Text('Take Photo (Camera)', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndSendImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceElevated,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.photo_library_rounded, color: AppColors.textPrimary),
+                ),
+                title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndSendImage(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndSendImage(ImageSource source) async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: source,
+      maxWidth: 140,
+      maxHeight: 140,
+      imageQuality: 20,
+    );
+    if (pickedFile == null) return;
+
+    setState(() {
+      _isSendingImage = true;
+      _imageProgressStatus = 'Compressing micro-image...';
+    });
+
+    try {
+      final bytes = await pickedFile.readAsBytes();
+      final bleState = ref.read(bleControllerProvider);
+      final localNodeId = bleState.deviceInfo?.nodeId ?? 0;
+      final chatRepo = ref.read(chatRepositoryProvider);
+
+      await chatRepo.sendImage(
+        conversationId: widget.conversation.id,
+        recipientNodeId: widget.conversation.peerNodeId,
+        imageBytes: bytes,
+        localNodeId: localNodeId,
+        onProgress: (current, total) {
+          if (mounted) {
+            setState(() {
+              _imageProgressStatus = 'Transmitting chunk $current / $total...';
+            });
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to transmit image: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSendingImage = false;
+          _imageProgressStatus = null;
+        });
+      }
+      _scrollToBottom();
+    }
   }
 
   void _scrollToBottom() {
@@ -317,14 +452,17 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
               ),
               const SizedBox(height: 3),
             ],
-            Text(
-              msg.textContent,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 14,
-                height: 1.4,
+            if (msg.textContent.startsWith('[IMAGE:') && msg.textContent.endsWith(']'))
+              _buildImageContent(msg.textContent)
+            else
+              Text(
+                msg.textContent,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
               ),
-            ),
             const SizedBox(height: 5),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -363,6 +501,85 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildImageContent(String tag) {
+    try {
+      final base64Str = tag.substring(7, tag.length - 1);
+      final bytes = base64Decode(base64Str);
+      return GestureDetector(
+        onTap: () {
+          showDialog(
+            context: context,
+            builder: (_) => Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.all(16),
+              child: Stack(
+                alignment: Alignment.topRight,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.memory(
+                      bytes,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.none,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 180, maxHeight: 180),
+            color: Colors.black26,
+            child: Stack(
+              alignment: Alignment.bottomRight,
+              children: [
+                Image.memory(
+                  bytes,
+                  width: 160,
+                  height: 160,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, _, _) => const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Icon(Icons.broken_image_rounded, color: AppColors.error),
+                  ),
+                ),
+                Container(
+                  margin: const EdgeInsets.all(4),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '${(bytes.length / 1024).toStringAsFixed(1)} KB',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (_) {
+      return const Text(
+        '📷 [Corrupted Image Data]',
+        style: TextStyle(color: AppColors.error, fontSize: 13),
+      );
+    }
   }
 
   Widget _buildDeliveryStatusIcon(MessageModel msg) {
@@ -411,8 +628,39 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
       ),
       child: Column(
         children: [
+          if (_isSendingImage)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _imageProgressStatus ?? 'Transmitting photo packets...',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.accent,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Row(
             children: [
+              IconButton(
+                icon: const Icon(Icons.add_photo_alternate_rounded),
+                color: _isSendingImage ? AppColors.textMuted : AppColors.accent,
+                tooltip: 'Send Micro-Photo',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                onPressed: _isSendingImage ? null : _showImagePickerSheet,
+              ),
+              const SizedBox(width: 4),
               Expanded(
                 child: TextField(
                   controller: _textController,
