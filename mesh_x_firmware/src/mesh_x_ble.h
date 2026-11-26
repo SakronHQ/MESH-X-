@@ -26,7 +26,11 @@ public:
       m_pTelemetryChar(nullptr),
       m_msgCb(nullptr),
       m_sosCb(nullptr),
-      m_radioCfgCb(nullptr) {
+      m_radioCfgCb(nullptr),
+      m_reasmSeq(0),
+      m_reasmLen(0),
+      m_reasmExpectedFrag(0),
+      m_reasmStartMs(0) {
   }
 
   bool begin(uint32_t nodeId, const String& fwVersion = "1.0.0") {
@@ -184,6 +188,14 @@ public:
     return sendEvent(EVT_TX_STATUS, seqNum, payload, sizeof(payload));
   }
 
+  bool sendTxStatusForPacket(uint16_t seqNum, uint8_t status, uint32_t packetId) {
+    uint8_t payload[6];
+    payload[0] = (uint8_t)(seqNum & 0xFF);
+    payload[1] = status;
+    memcpy(payload + 2, &packetId, 4);
+    return sendEvent(EVT_TX_STATUS, seqNum, payload, sizeof(payload));
+  }
+
   bool sendRxMessage(uint32_t srcNode, uint32_t packetId, uint8_t flags, const uint8_t* msgBytes, size_t msgLen, float rssi, float snr) {
     if (!m_deviceConnected) return false;
     size_t payloadLen = 4 + 4 + 1 + 1 + 1 + msgLen;
@@ -263,9 +275,46 @@ public:
       return;
     }
 
-    // 3. Process Command
+    // 3. Process Command (single-frame fast path or multi-fragment reassembly)
     const uint8_t* payloadPtr = pData + sizeof(BleFrameHeader);
-    processCommand(hdr->frameType, hdr->seqNum, payloadPtr, payloadLen);
+    if (hdr->fragCount <= 1) {
+      processCommand(hdr->frameType, hdr->seqNum, payloadPtr, payloadLen);
+      return;
+    }
+
+    // Multi-fragment BLE reassembly
+    uint32_t nowMs = millis();
+    if (hdr->fragIndex == 0 ||
+        hdr->seqNum != m_reasmSeq ||
+        (nowMs - m_reasmStartMs > BLE_REASSEMBLY_TIMEOUT_MS)) {
+      m_reasmSeq = hdr->seqNum;
+      m_reasmLen = 0;
+      m_reasmExpectedFrag = 0;
+      m_reasmStartMs = nowMs;
+    }
+
+    if (hdr->fragIndex != m_reasmExpectedFrag ||
+        m_reasmLen + payloadLen > sizeof(m_reasmBuf)) {
+      Serial.printf("[BLE] Reassembly error (idx %u exp %u, len %u)\n",
+        hdr->fragIndex, m_reasmExpectedFrag, (unsigned int)(m_reasmLen + payloadLen));
+      m_reasmExpectedFrag = 0;
+      m_reasmLen = 0;
+      sendError(hdr->seqNum, ERR_PAYLOAD_TOO_LARGE);
+      return;
+    }
+
+    if (payloadLen > 0) {
+      memcpy(m_reasmBuf + m_reasmLen, payloadPtr, payloadLen);
+      m_reasmLen += payloadLen;
+    }
+    m_reasmExpectedFrag++;
+
+    if (m_reasmExpectedFrag >= hdr->fragCount) {
+      size_t completeLen = m_reasmLen;
+      m_reasmExpectedFrag = 0;
+      m_reasmLen = 0;
+      processCommand(hdr->frameType, hdr->seqNum, m_reasmBuf, completeLen);
+    }
   }
 
 private:
@@ -285,6 +334,12 @@ private:
   SosSubmitCallback     m_sosCb;
   RadioConfigCallback   m_radioCfgCb;
 
+  uint8_t  m_reasmBuf[320];
+  uint16_t m_reasmSeq;
+  size_t   m_reasmLen;
+  uint8_t  m_reasmExpectedFrag;
+  uint32_t m_reasmStartMs;
+
   void processCommand(uint8_t cmdType, uint16_t seqNum, const uint8_t* payload, size_t len) {
     Serial.printf("[BLE CMD] Type: 0x%02X | Seq: %u | Payload: %d B\n", cmdType, seqNum, (int)len);
 
@@ -298,7 +353,6 @@ private:
 
       case CMD_SUBMIT_MESSAGE: {
         Serial.println(F("[BLE CMD] SUBMIT_MESSAGE received."));
-        sendTxStatus(seqNum, TX_STATUS_QUEUED);
         if (m_msgCb) {
           m_msgCb(payload, len);
         }
@@ -307,7 +361,6 @@ private:
 
       case CMD_SUBMIT_SOS: {
         Serial.println(F("[BLE CMD] SUBMIT_SOS received!"));
-        sendTxStatus(seqNum, TX_STATUS_QUEUED);
         if (m_sosCb) {
           m_sosCb(payload, len);
         }
@@ -319,7 +372,6 @@ private:
         if (m_radioCfgCb) {
           m_radioCfgCb(payload, len);
         }
-        sendTxStatus(seqNum, TX_STATUS_TRANSMITTED);
         break;
       }
 

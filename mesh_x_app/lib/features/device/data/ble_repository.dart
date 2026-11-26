@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -27,9 +28,15 @@ class BleRepository {
   final _telemetryController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get telemetryStream => _telemetryController.stream;
 
+  final _connectionController = StreamController<bool>.broadcast();
+  Stream<bool> get connectionStream => _connectionController.stream;
+
   int _cmdSeq = 0;
+  int _negotiatedMtu = 23;
+  Future<void> _writeChain = Future.value();
 
   BluetoothDevice? get connectedDevice => _connectedDevice;
+  bool get isReady => _connectedDevice != null && _cmdInChar != null;
 
   Future<bool> requestPermissions() async {
     if (Platform.isAndroid) {
@@ -99,11 +106,16 @@ class BleRepository {
       ).timeout(const Duration(seconds: 2));
     } catch (_) {}
 
-    // Request MTU up to 256 bytes
+    // Request MTU up to 256 bytes and store negotiated ATT MTU
+    _negotiatedMtu = 23;
     try {
-      await device.requestMtu(256).timeout(const Duration(seconds: 2));
+      final mtu = await device.requestMtu(256).timeout(const Duration(seconds: 2));
+      if (mtu >= 23) _negotiatedMtu = mtu;
     } catch (_) {
-      // MTU negotiation unsupported or platform-constrained
+      try {
+        final cur = device.mtuNow;
+        if (cur >= 23) _negotiatedMtu = cur;
+      } catch (_) {}
     }
 
     // Discover services with 6-second timeout
@@ -185,11 +197,13 @@ class BleRepository {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(BleConstants.prefLastDeviceId, device.remoteId.str);
 
+    _connectionController.add(true);
     return deviceInfo;
   }
 
   Future<void> disconnect() async {
     _cleanupCharacteristics();
+    _connectionController.add(false);
     if (_connectedDevice != null) {
       try {
         await _connectedDevice!.disconnect().timeout(const Duration(seconds: 2));
@@ -209,36 +223,68 @@ class BleRepository {
     _eventOutChar = null;
     _telemetryChar = null;
     _deviceInfoChar = null;
+    _negotiatedMtu = 23;
   }
 
-  Future<bool> sendCommand(int cmdType, [Uint8List? payload]) async {
-    if (_cmdInChar == null) return false;
+  Future<bool> sendCommand(int cmdType, [Uint8List? payload]) {
+    final completer = Completer<bool>();
+    _writeChain = _writeChain.then((_) async {
+      final ok = await _sendCommandInternal(cmdType, payload);
+      if (!completer.isCompleted) completer.complete(ok);
+    }).catchError((_) {
+      if (!completer.isCompleted) completer.complete(false);
+    });
+    return completer.future;
+  }
+
+  Future<bool> _sendCommandInternal(int cmdType, [Uint8List? payload]) async {
+    if (_cmdInChar == null || _connectedDevice == null) return false;
 
     final data = payload ?? Uint8List(0);
-    final totalLen = 10 + data.length + 2; // Header (10) + Payload + CRC (2)
-    final buffer = Uint8List(totalLen);
-    final byteData = ByteData.sublistView(buffer);
+    _cmdSeq = (_cmdSeq + 1) & 0xFFFF;
+    final seq = _cmdSeq;
 
-    _cmdSeq++;
-    // Header
-    byteData.setUint8(0, BleConstants.magicByte0);
-    byteData.setUint8(1, BleConstants.magicByte1);
-    byteData.setUint8(2, BleConstants.protocolVersion);
-    byteData.setUint8(3, cmdType);
-    byteData.setUint16(4, _cmdSeq, Endian.little);
-    byteData.setUint16(6, data.length, Endian.little);
-    byteData.setUint8(8, 0); // fragIndex
-    byteData.setUint8(9, 1); // fragCount
+    // Max ATT write payload = MTU - 3; BleFrameHeader (10B) + CRC16 (2B) = 12B overhead
+    final maxFragData = max(8, _negotiatedMtu - 3 - 12);
+    final fragCount = data.isEmpty ? 1 : (data.length / maxFragData).ceil();
+    if (fragCount > 255) return false;
 
-    if (data.isNotEmpty) {
-      buffer.setRange(10, 10 + data.length, data);
+    final useWithoutResponse = !_cmdInChar!.properties.write;
+
+    try {
+      for (int fragIdx = 0; fragIdx < fragCount; fragIdx++) {
+        if (_cmdInChar == null) return false;
+        final start = fragIdx * maxFragData;
+        final end = data.isEmpty ? 0 : min(start + maxFragData, data.length);
+        final chunkLen = end - start;
+
+        final buffer = Uint8List(10 + chunkLen + 2);
+        final byteData = ByteData.sublistView(buffer);
+
+        byteData.setUint8(0, BleConstants.magicByte0);
+        byteData.setUint8(1, BleConstants.magicByte1);
+        byteData.setUint8(2, BleConstants.protocolVersion);
+        byteData.setUint8(3, cmdType);
+        byteData.setUint16(4, seq, Endian.little);
+        byteData.setUint16(6, data.length, Endian.little);
+        byteData.setUint8(8, fragIdx);
+        byteData.setUint8(9, fragCount);
+
+        if (chunkLen > 0) {
+          buffer.setRange(10, 10 + chunkLen, data, start);
+        }
+
+        final crc = Crc16.compute(buffer, 10 + chunkLen);
+        byteData.setUint16(10 + chunkLen, crc, Endian.little);
+
+        await _cmdInChar!
+            .write(buffer, withoutResponse: useWithoutResponse)
+            .timeout(const Duration(seconds: 3));
+      }
+      return true;
+    } catch (_) {
+      return false;
     }
-
-    final crc = Crc16.compute(buffer, 10 + data.length);
-    byteData.setUint16(10 + data.length, crc, Endian.little);
-
-    await _cmdInChar!.write(buffer, withoutResponse: true);
-    return true;
   }
 
   void _handleRawEventFrame(List<int> raw) {

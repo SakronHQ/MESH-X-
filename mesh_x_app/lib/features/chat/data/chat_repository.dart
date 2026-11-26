@@ -19,6 +19,12 @@ class ChatRepository {
   final CryptoService _cryptoService;
   final _uuid = const Uuid();
   StreamSubscription<List<int>>? _bleEventSubscription;
+  StreamSubscription<bool>? _bleConnectionSubscription;
+  Future<void> _eventQueue = Future.value();
+  int _localNodeId = 0;
+
+  final List<String> _recentPacketOrder = [];
+  final Set<String> _recentPacketKeys = {};
 
   final _conversationsStreamController =
       StreamController<List<ConversationModel>>.broadcast();
@@ -51,8 +57,36 @@ class ChatRepository {
 
   void _initEventListener() {
     _bleEventSubscription = _bleRepository.eventStream.listen((rawFrame) {
-      _handleBleEvent(rawFrame);
+      _eventQueue = _eventQueue
+          .then((_) => _handleBleEvent(rawFrame))
+          .catchError((_) {});
     });
+    _bleConnectionSubscription = _bleRepository.connectionStream.listen((connected) {
+      if (connected) {
+        flushQueuedMessages();
+      }
+    });
+  }
+
+  Future<void> flushQueuedMessages() async {
+    if (!_bleRepository.isReady) return;
+    final db = await AppDatabase.instance;
+    final queued = await db.query(
+      'messages',
+      where: 'is_incoming = 0 AND delivery_status = ?',
+      whereArgs: [MessageDeliveryStatus.queued.toDbString()],
+      orderBy: 'created_at ASC',
+      limit: 20,
+    );
+    for (final row in queued) {
+      final msg = MessageModel.fromMap(row);
+      if (msg.textContent.startsWith('[IMAGE:') ||
+          msg.textContent.startsWith('🚨 [SOS DISTRESS]')) {
+        continue;
+      }
+      await retryMessage(msg.id);
+      await Future.delayed(const Duration(milliseconds: 350));
+    }
   }
 
   CryptoService get cryptoService => _cryptoService;
@@ -155,9 +189,10 @@ class ChatRepository {
     required int localNodeId,
   }) async {
     final db = await AppDatabase.instance;
+    if (localNodeId != 0) _localNodeId = localNodeId;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final messageId = _uuid.v4();
-    final packetId = Random().nextInt(0x7FFFFFFF); // 31-bit positive int
+    final packetId = Random().nextInt(0x7FFFFFFE) + 1; // Non-zero 31-bit int
 
     bool isEncrypted = false;
     Uint8List wirePayload;
@@ -184,14 +219,18 @@ class ChatRepository {
       wirePayload = Uint8List.fromList(utf8.encode(textContent));
     }
 
-    final message = MessageModel(
+    final exceedsRfLimit = wirePayload.length > 235;
+    var initialStatus =
+        exceedsRfLimit ? MessageDeliveryStatus.failed : MessageDeliveryStatus.queued;
+
+    var message = MessageModel(
       id: messageId,
       packetId: packetId,
       conversationId: conversationId,
       senderNodeId: localNodeId,
       recipientNodeId: recipientNodeId,
       textContent: textContent,
-      deliveryStatus: MessageDeliveryStatus.queued,
+      deliveryStatus: initialStatus,
       isIncoming: false,
       isEncrypted: isEncrypted,
       createdAt: now,
@@ -214,6 +253,10 @@ class ChatRepository {
 
     _notifyUpdates(conversationId);
 
+    if (exceedsRfLimit) {
+      return message;
+    }
+
     // Package payload for BLE command: [PACKET_ID: 4B][DEST_NODE: 4B][FLAGS: 1B][DATA]
     final payload = Uint8List(4 + 4 + 1 + wirePayload.length);
     final bd = ByteData.sublistView(payload);
@@ -223,7 +266,17 @@ class ChatRepository {
     payload.setRange(9, 9 + wirePayload.length, wirePayload);
 
     // Transmit over BLE Command characteristic
-    await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
+    final sent = await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
+    if (!sent && _bleRepository.isReady) {
+      message = message.copyWith(deliveryStatus: MessageDeliveryStatus.failed);
+      await db.update(
+        'messages',
+        {'delivery_status': MessageDeliveryStatus.failed.toDbString()},
+        where: 'id = ?',
+        whereArgs: [messageId],
+      );
+      _notifyUpdates(conversationId);
+    }
 
     return message;
   }
@@ -236,6 +289,11 @@ class ChatRepository {
     required int localNodeId,
     void Function(int current, int total)? onProgress,
   }) async {
+    if (!_bleRepository.isReady) {
+      throw StateError('Hardware node is offline. Connect via BLE to send photos.');
+    }
+    if (localNodeId != 0) _localNodeId = localNodeId;
+
     final db = await AppDatabase.instance;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final messageId = _uuid.v4();
@@ -244,7 +302,7 @@ class ChatRepository {
     // Save full image locally in SQLite
     final localMsg = MessageModel(
       id: messageId,
-      packetId: Random().nextInt(0x7FFFFFFF),
+      packetId: Random().nextInt(0x7FFFFFFE) + 1,
       conversationId: conversationId,
       senderNodeId: localNodeId,
       recipientNodeId: recipientNodeId,
@@ -283,7 +341,7 @@ class ChatRepository {
           'IMG:$imageId:${i.toRadixString(16).padLeft(2, '0')}:${totalChunks.toRadixString(16).padLeft(2, '0')}:$chunkSlice';
 
       final wirePayload = Uint8List.fromList(utf8.encode(chunkText));
-      final packetId = Random().nextInt(0x7FFFFFFF);
+      final packetId = Random().nextInt(0x7FFFFFFE) + 1;
 
       final payload = Uint8List(4 + 4 + 1 + wirePayload.length);
       final bd = ByteData.sublistView(payload);
@@ -292,12 +350,19 @@ class ChatRepository {
       bd.setUint8(8, flags);
       payload.setRange(9, 9 + wirePayload.length, wirePayload);
 
-      await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
+      var ok = await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
+      if (!ok) {
+        await Future.delayed(const Duration(milliseconds: 250));
+        ok = await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
+      }
+      if (!ok) {
+        throw StateError('Lost BLE link while transmitting chunk ${i + 1}/$totalChunks');
+      }
       onProgress?.call(i + 1, totalChunks);
 
-      // Brief pacing to prevent RF collision
+      // Pacing aligned with LoRa SF9 airtime (~500ms) so BLE/TX queue never overflows
       if (i < totalChunks - 1) {
-        await Future.delayed(const Duration(milliseconds: 180));
+        await Future.delayed(const Duration(milliseconds: 480));
       }
     }
   }
@@ -310,6 +375,11 @@ class ChatRepository {
     required String chunkData,
   }) {
     final key = '$senderNodeId-$imageId';
+    if (!_incomingImageBuffers.containsKey(key) && _incomingImageBuffers.length >= 8) {
+      final oldestKey = _incomingImageBuffers.keys.first;
+      _incomingImageBuffers.remove(oldestKey);
+      _incomingImageTotals.remove(oldestKey);
+    }
     final buffer = _incomingImageBuffers.putIfAbsent(key, () => {});
     _incomingImageTotals[key] = totalChunks;
     buffer[chunkIdx] = chunkData;
@@ -332,9 +402,10 @@ class ChatRepository {
     double? longitude,
     required int localNodeId,
   }) async {
+    if (localNodeId != 0) _localNodeId = localNodeId;
     final db = await AppDatabase.instance;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final packetId = Random().nextInt(0x7FFFFFFF);
+    final packetId = Random().nextInt(0x7FFFFFFE) + 1;
 
     // Wire format: [PACKET_ID: 4B][LAT_E7: 4B][LON_E7: 4B][TEXT]
     final textBytes = Uint8List.fromList(utf8.encode(distressMessage));
@@ -347,8 +418,11 @@ class ChatRepository {
     bd.setInt32(8, lonE7, Endian.little);
     payload.setRange(12, 12 + textBytes.length, textBytes);
 
-    // Send emergency command to ESP32 BLE
-    await _bleRepository.sendCommand(BleConstants.cmdSubmitSos, payload);
+    // Send emergency command to ESP32 BLE and verify link
+    final sent = await _bleRepository.sendCommand(BleConstants.cmdSubmitSos, payload);
+    if (!sent) {
+      throw StateError('Hardware node is offline or BLE write failed.');
+    }
 
     // Format local SOS alert message
     final locationTag = (latitude != null &&
@@ -447,7 +521,30 @@ class ChatRepository {
     bd.setUint8(8, flags);
     payload.setRange(9, 9 + wirePayload.length, wirePayload);
 
-    await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
+    final sent = await _bleRepository.sendCommand(BleConstants.cmdSubmitMessage, payload);
+    if (!sent && _bleRepository.isReady) {
+      await db.update(
+        'messages',
+        {'delivery_status': MessageDeliveryStatus.failed.toDbString()},
+        where: 'id = ?',
+        whereArgs: [messageId],
+      );
+      _notifyUpdates(msg.conversationId);
+    }
+  }
+
+  bool _markPacketSeenInMemory(int srcNode, int packetId) {
+    final key = '$srcNode-$packetId';
+    if (_recentPacketKeys.contains(key)) {
+      return true;
+    }
+    _recentPacketKeys.add(key);
+    _recentPacketOrder.add(key);
+    if (_recentPacketOrder.length > 256) {
+      final oldest = _recentPacketOrder.removeAt(0);
+      _recentPacketKeys.remove(oldest);
+    }
+    return false;
   }
 
   Future<void> _handleBleEvent(List<int> rawFrame) async {
@@ -484,6 +581,14 @@ class ChatRepository {
         snr = bd.getInt8(5).toDouble();
         flags = bd.getUint8(6);
         rawMsg = payload.sublist(7);
+      }
+
+      // Drop our own echoed packets and suppress rapid in-memory duplicates
+      if (_localNodeId != 0 && srcNode == _localNodeId) {
+        return;
+      }
+      if (packetId != 0 && _markPacketSeenInMemory(srcNode, packetId)) {
+        return;
       }
 
       // Deduplicate incoming packets on mobile SQLite database
@@ -672,34 +777,55 @@ class ChatRepository {
     }
 
     // 2. Transmit Status: EVT_TX_STATUS (0x81)
-    // Payload: [SEQ: 1B][STATUS: 1B]
+    // Legacy: [SEQ: 1B][STATUS: 1B]
+    // Enhanced: [SEQ: 1B][STATUS: 1B][PACKET_ID: 4B]
     else if (eventType == BleConstants.evtTxStatus && payload.length >= 2) {
       final statusByte = payload[1];
+      if (statusByte != 0x02 && statusByte != 0x03) return;
       final newStatus = statusByte == 0x02
           ? MessageDeliveryStatus.transmitted
-          : (statusByte == 0x03
-              ? MessageDeliveryStatus.failed
-              : MessageDeliveryStatus.queued);
+          : MessageDeliveryStatus.failed;
 
-      // Update oldest queued message (FIFO radio queue)
-      final latest = await db.query(
-        'messages',
-        where: 'delivery_status = ?',
-        whereArgs: [MessageDeliveryStatus.queued.toDbString()],
-        orderBy: 'created_at ASC',
-        limit: 1,
-      );
-
-      if (latest.isNotEmpty) {
-        final msgId = latest.first['id'] as String;
-        final convId = latest.first['conversation_id'] as String;
-        await db.update(
+      if (payload.length >= 6) {
+        final bd = ByteData.sublistView(payload);
+        final packetId = bd.getUint32(2, Endian.little);
+        final matched = await db.query(
           'messages',
-          {'delivery_status': newStatus.toDbString()},
-          where: 'id = ?',
-          whereArgs: [msgId],
+          where: 'packet_id = ? AND delivery_status != ?',
+          whereArgs: [packetId, MessageDeliveryStatus.delivered.toDbString()],
+          limit: 1,
         );
-        _notifyUpdates(convId);
+        if (matched.isNotEmpty) {
+          final convId = matched.first['conversation_id'] as String;
+          await db.update(
+            'messages',
+            {'delivery_status': newStatus.toDbString()},
+            where: 'packet_id = ? AND delivery_status != ?',
+            whereArgs: [packetId, MessageDeliveryStatus.delivered.toDbString()],
+          );
+          _notifyUpdates(convId);
+        }
+      } else {
+        // Legacy fallback: update oldest queued message
+        final latest = await db.query(
+          'messages',
+          where: 'delivery_status = ?',
+          whereArgs: [MessageDeliveryStatus.queued.toDbString()],
+          orderBy: 'created_at ASC',
+          limit: 1,
+        );
+
+        if (latest.isNotEmpty) {
+          final msgId = latest.first['id'] as String;
+          final convId = latest.first['conversation_id'] as String;
+          await db.update(
+            'messages',
+            {'delivery_status': newStatus.toDbString()},
+            where: 'id = ?',
+            whereArgs: [msgId],
+          );
+          _notifyUpdates(convId);
+        }
       }
     }
 
@@ -776,6 +902,7 @@ class ChatRepository {
 
   void dispose() {
     _bleEventSubscription?.cancel();
+    _bleConnectionSubscription?.cancel();
     _conversationsStreamController.close();
     _messagesStreamController.close();
     _nodesStreamController.close();

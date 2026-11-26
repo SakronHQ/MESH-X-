@@ -214,6 +214,11 @@ class BleController extends Notifier<BleState> {
         status: BleConnectionStatus.connected,
         deviceInfo: info,
       );
+
+      // Sync saved radio config (SF/Freq/Power) to ESP32 after connect/reboot
+      try {
+        await _repository.sendRadioConfig(state.radioConfig);
+      } catch (_) {}
     } catch (e) {
       state = state.copyWith(
         status: BleConnectionStatus.error,

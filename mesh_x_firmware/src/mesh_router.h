@@ -2,9 +2,14 @@
 
 #include <Arduino.h>
 
-#define MESH_DUPLICATE_CACHE_SIZE 64
+#define MESH_DUPLICATE_CACHE_SIZE 128
 #define MESH_MAX_NEIGHBORS        16
-#define MESH_DEFAULT_TTL          3
+#define MESH_DEFAULT_TTL          5
+
+struct SeenPacketEntry {
+  uint32_t srcNode;
+  uint32_t packetId;
+};
 
 struct NeighborNode {
   uint32_t nodeId;
@@ -17,24 +22,29 @@ struct NeighborNode {
 class MeshRouter {
 public:
   MeshRouter() : m_cacheIndex(0), m_neighborCount(0) {
-    memset(m_seenPacketIds, 0, sizeof(m_seenPacketIds));
+    memset(m_seenPackets, 0, sizeof(m_seenPackets));
     memset(m_neighbors, 0, sizeof(m_neighbors));
   }
 
-  // Returns true if packet was already seen (duplicate), otherwise records it
-  bool isDuplicate(uint32_t packetId) {
-    if (packetId == 0) return false;
+  // Returns true if (srcNode, packetId) was already seen, otherwise records it
+  bool isDuplicate(uint32_t srcNode, uint32_t packetId) {
+    if (srcNode == 0 && packetId == 0) return false;
 
     for (size_t i = 0; i < MESH_DUPLICATE_CACHE_SIZE; ++i) {
-      if (m_seenPacketIds[i] == packetId) {
+      if (m_seenPackets[i].srcNode == srcNode && m_seenPackets[i].packetId == packetId) {
         return true;
       }
     }
 
     // Add to circular buffer
-    m_seenPacketIds[m_cacheIndex] = packetId;
+    m_seenPackets[m_cacheIndex].srcNode = srcNode;
+    m_seenPackets[m_cacheIndex].packetId = packetId;
     m_cacheIndex = (m_cacheIndex + 1) % MESH_DUPLICATE_CACHE_SIZE;
     return false;
+  }
+
+  bool isDuplicate(uint32_t packetId) {
+    return isDuplicate(0, packetId);
   }
 
   // Update or insert a neighbor in the routing table
@@ -84,8 +94,8 @@ public:
   const NeighborNode* getNeighbors() const { return m_neighbors; }
 
 private:
-  uint32_t m_seenPacketIds[MESH_DUPLICATE_CACHE_SIZE];
-  size_t   m_cacheIndex;
+  SeenPacketEntry m_seenPackets[MESH_DUPLICATE_CACHE_SIZE];
+  size_t          m_cacheIndex;
 
   NeighborNode m_neighbors[MESH_MAX_NEIGHBORS];
   size_t       m_neighborCount;

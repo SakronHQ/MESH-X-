@@ -40,6 +40,51 @@ volatile bool g_radioDio0Triggered = false;
 uint32_t g_lastTelemetryTime = 0;
 uint32_t g_lastAnnounceTime = 0;
 
+// Thread-safe outbound TX & RadioConfig queues (Core 0 BLE -> Core 1 LoRa loop)
+#define TX_QUEUE_SIZE 8
+struct OutboundTxItem {
+  uint8_t  data[256];
+  size_t   len;
+  uint32_t packetId;
+  bool     notifyStatus;
+};
+
+portMUX_TYPE g_txMux = portMUX_INITIALIZER_UNLOCKED;
+OutboundTxItem g_txQueue[TX_QUEUE_SIZE];
+size_t g_txHead = 0;
+size_t g_txTail = 0;
+size_t g_txCount = 0;
+
+bool enqueueOtaTx(const uint8_t* buf, size_t len, uint32_t packetId, bool notifyStatus) {
+  if (len == 0 || len > 256) return false;
+  bool enqueued = false;
+  portENTER_CRITICAL(&g_txMux);
+  if (g_txCount < TX_QUEUE_SIZE) {
+    memcpy(g_txQueue[g_txTail].data, buf, len);
+    g_txQueue[g_txTail].len = len;
+    g_txQueue[g_txTail].packetId = packetId;
+    g_txQueue[g_txTail].notifyStatus = notifyStatus;
+    g_txTail = (g_txTail + 1) % TX_QUEUE_SIZE;
+    g_txCount++;
+    enqueued = true;
+  }
+  portEXIT_CRITICAL(&g_txMux);
+  return enqueued;
+}
+
+bool dequeueOtaTx(OutboundTxItem* out) {
+  bool hasItem = false;
+  portENTER_CRITICAL(&g_txMux);
+  if (g_txCount > 0) {
+    *out = g_txQueue[g_txHead];
+    g_txHead = (g_txHead + 1) % TX_QUEUE_SIZE;
+    g_txCount--;
+    hasItem = true;
+  }
+  portEXIT_CRITICAL(&g_txMux);
+  return hasItem;
+}
+
 // Radio packet types (OTA)
 #define OTA_PKT_TEXT_MSG       0x01
 #define OTA_PKT_ACK            0x02
@@ -73,15 +118,17 @@ void onRadioDio0(void) {
   g_radioDio0Triggered = true;
 }
 
-// Transmit an over-the-air raw buffer
+// Transmit an over-the-air raw buffer (MUST only be called from Core 1 loop())
 bool transmitOtaBuffer(const uint8_t* buffer, size_t totalLen) {
   if (!g_radioInitialized) return false;
+  radio.standby();
   g_radioDio0Triggered = false;
   int16_t state = radio.startTransmit((uint8_t*)buffer, totalLen);
   bool success = false;
   if (state == RADIOLIB_ERR_NONE) {
     uint32_t startMs = millis();
-    while (!g_radioDio0Triggered && (millis() - startMs < 1200)) {
+    // 4500ms timeout safely covers worst-case SF12 long-payload Time-on-Air
+    while (!g_radioDio0Triggered && (millis() - startMs < 4500)) {
       yield();
     }
     success = g_radioDio0Triggered;
@@ -92,7 +139,8 @@ bool transmitOtaBuffer(const uint8_t* buffer, size_t totalLen) {
     Serial.printf("[RADIO TX ERR] startTransmit code: %d\n", state);
   }
 
-  // Restore non-blocking receive mode
+  // Clear TX state cleanly in standby before re-arming non-blocking RX
+  radio.standby();
   g_radioDio0Triggered = false;
   radio.startReceive();
   return success;
@@ -106,8 +154,8 @@ void relayPacket(const uint8_t* originalPacket, size_t packetLen) {
   memcpy(relayBuf, originalPacket, packetLen);
   OtaPacketHeader* hdr = reinterpret_cast<OtaPacketHeader*>(relayBuf);
 
-  if (hdr->ttl <= 1) {
-    Serial.printf("[ROUTER] TTL expired for packet 0x%08X. Dropping.\n", (unsigned int)hdr->packetId);
+  if (hdr->ttl <= 1 || hdr->hopCount >= 5) {
+    Serial.printf("[ROUTER] TTL/Hop limit reached for packet 0x%08X. Dropping.\n", (unsigned int)hdr->packetId);
     return;
   }
 
@@ -168,7 +216,7 @@ void sendNodeAnnounce() {
   hdr->payloadLen = 0;
 
   // Suppress our own announce packet
-  g_router.isDuplicate(hdr->packetId);
+  g_router.isDuplicate(g_localNodeId, hdr->packetId);
 
   uint16_t crc = computeCrc16(buf, sizeof(OtaPacketHeader));
   buf[sizeof(OtaPacketHeader)] = (uint8_t)(crc & 0xFF);
@@ -178,7 +226,7 @@ void sendNodeAnnounce() {
   transmitOtaBuffer(buf, sizeof(buf));
 }
 
-// Callback invoked when mobile app submits message via BLE
+// Callback invoked when mobile app submits message via BLE (runs on Core 0 BLE task - DO NOT block on LoRa!)
 void onMobileMessageSubmitted(const uint8_t* payload, size_t len) {
   // Expected payload: [PACKET_ID: 4B][DEST_NODE: 4B][FLAGS: 1B][TEXT]
   if (len < 9) {
@@ -197,19 +245,20 @@ void onMobileMessageSubmitted(const uint8_t* payload, size_t len) {
   const char* text  = reinterpret_cast<const char*>(payload + 9);
   size_t textLen    = len - 9;
 
-  Serial.printf("[BRIDGE] Outbound Msg from Mobile: PktID 0x%08X -> Dest 0x%08X (len %d)\n",
+  Serial.printf("[BRIDGE] Queued Msg from Mobile: PktID 0x%08X -> Dest 0x%08X (len %d)\n",
     (unsigned int)packetId, (unsigned int)destNode, (int)textLen);
-
-  // Suppress our own outbound packet from being relayed back to us
-  g_router.isDuplicate(packetId);
 
   // Build OTA Frame
   size_t otaTotalLen = sizeof(OtaPacketHeader) + textLen + 2;
   uint8_t otaBuf[256];
   if (otaTotalLen > sizeof(otaBuf)) {
     Serial.println(F("[BRIDGE ERR] Message exceeds RF packet limit."));
+    ble.sendTxStatusForPacket(0, TX_STATUS_FAILED, packetId);
     return;
   }
+
+  // Suppress our own outbound packet from being relayed back to us
+  g_router.isDuplicate(g_localNodeId, packetId);
 
   OtaPacketHeader* hdr = reinterpret_cast<OtaPacketHeader*>(otaBuf);
   hdr->magic = MESH_MAGIC_BYTE;
@@ -231,14 +280,13 @@ void onMobileMessageSubmitted(const uint8_t* payload, size_t len) {
   otaBuf[sizeof(OtaPacketHeader) + textLen] = (uint8_t)(crc & 0xFF);
   otaBuf[sizeof(OtaPacketHeader) + textLen + 1] = (uint8_t)((crc >> 8) & 0xFF);
 
-  // Transmit over LoRa
-  bool ok = transmitOtaBuffer(otaBuf, otaTotalLen);
-
-  // Notify mobile app that packet transmission finished
-  ble.sendTxStatus(0, ok ? TX_STATUS_TRANSMITTED : TX_STATUS_FAILED);
+  if (!enqueueOtaTx(otaBuf, otaTotalLen, packetId, true)) {
+    Serial.println(F("[BRIDGE ERR] Outbound TX queue full."));
+    ble.sendTxStatusForPacket(0, TX_STATUS_FAILED, packetId);
+  }
 }
 
-// Callback invoked when mobile app submits an emergency SOS broadcast
+// Callback invoked when mobile app submits an emergency SOS broadcast (runs on Core 0 BLE task)
 void onMobileSosSubmitted(const uint8_t* payload, size_t len) {
   // Expected payload: [PACKET_ID: 4B][BODY_BYTES...]
   if (len < 4) {
@@ -251,17 +299,18 @@ void onMobileSosSubmitted(const uint8_t* payload, size_t len) {
   const uint8_t* sosBody = payload + 4;
   size_t sosBodyLen = len - 4;
 
-  Serial.printf("[SOS BROADCAST] Initiating Emergency SOS! Packet ID 0x%08X (len %d)\n",
+  Serial.printf("[SOS BROADCAST] Queuing Emergency SOS! Packet ID 0x%08X (len %d)\n",
     (unsigned int)packetId, (int)sosBodyLen);
-
-  g_router.isDuplicate(packetId);
 
   size_t otaTotalLen = sizeof(OtaPacketHeader) + sosBodyLen + 2;
   uint8_t otaBuf[256];
   if (otaTotalLen > sizeof(otaBuf)) {
     Serial.println(F("[SOS ERR] SOS payload exceeds RF limit."));
+    ble.sendTxStatusForPacket(0, TX_STATUS_FAILED, packetId);
     return;
   }
+
+  g_router.isDuplicate(g_localNodeId, packetId);
 
   OtaPacketHeader* hdr = reinterpret_cast<OtaPacketHeader*>(otaBuf);
   hdr->magic = MESH_MAGIC_BYTE;
@@ -283,8 +332,10 @@ void onMobileSosSubmitted(const uint8_t* payload, size_t len) {
   otaBuf[sizeof(OtaPacketHeader) + sosBodyLen] = (uint8_t)(crc & 0xFF);
   otaBuf[sizeof(OtaPacketHeader) + sosBodyLen + 1] = (uint8_t)((crc >> 8) & 0xFF);
 
-  bool ok = transmitOtaBuffer(otaBuf, otaTotalLen);
-  ble.sendTxStatus(0, ok ? TX_STATUS_TRANSMITTED : TX_STATUS_FAILED);
+  if (!enqueueOtaTx(otaBuf, otaTotalLen, packetId, true)) {
+    Serial.println(F("[SOS ERR] Outbound TX queue full."));
+    ble.sendTxStatusForPacket(0, TX_STATUS_FAILED, packetId);
+  }
 }
 
 #pragma pack(push, 1)
@@ -297,46 +348,57 @@ struct RadioConfigPayload {
 };
 #pragma pack(pop)
 
-// Callback invoked when mobile app submits dynamic radio configuration
+volatile bool g_hasPendingRadioCfg = false;
+RadioConfigPayload g_pendingRadioCfg;
+
+void applyPendingRadioConfig() {
+  RadioConfigPayload cfg;
+  bool hasCfg = false;
+  portENTER_CRITICAL(&g_txMux);
+  if (g_hasPendingRadioCfg) {
+    cfg = g_pendingRadioCfg;
+    g_hasPendingRadioCfg = false;
+    hasCfg = true;
+  }
+  portEXIT_CRITICAL(&g_txMux);
+
+  if (!hasCfg || !g_radioInitialized) return;
+
+  float newFreq = (float)cfg.freqKhz / 1000.0f;
+  float newBw = (float)cfg.bwKhz;
+  uint8_t newSf = cfg.sf;
+  uint8_t newCr = cfg.cr;
+  int8_t newPower = cfg.txPower;
+
+  Serial.printf("[RADIO CFG] Reconfiguring LoRa: Freq: %.3f MHz, SF%u, BW %.1fkHz, CR 4/%u, Power: %d dBm\n",
+    newFreq, (unsigned int)newSf, newBw, (unsigned int)newCr, (int)newPower);
+
+  radio.standby();
+  int16_t state = radio.setFrequency(newFreq);
+  if (state != RADIOLIB_ERR_NONE) Serial.printf("[RADIO CFG ERR] setFrequency failed: %d\n", state);
+  state = radio.setSpreadingFactor(newSf);
+  if (state != RADIOLIB_ERR_NONE) Serial.printf("[RADIO CFG ERR] setSpreadingFactor failed: %d\n", state);
+  state = radio.setBandwidth(newBw);
+  if (state != RADIOLIB_ERR_NONE) Serial.printf("[RADIO CFG ERR] setBandwidth failed: %d\n", state);
+  state = radio.setCodingRate(newCr);
+  if (state != RADIOLIB_ERR_NONE) Serial.printf("[RADIO CFG ERR] setCodingRate failed: %d\n", state);
+  state = radio.setOutputPower(newPower);
+  if (state != RADIOLIB_ERR_NONE) Serial.printf("[RADIO CFG ERR] setOutputPower failed: %d\n", state);
+  g_radioDio0Triggered = false;
+  radio.startReceive();
+  Serial.println(F("[RADIO CFG] SX1278 parameters updated and RX resumed."));
+}
+
+// Callback invoked when mobile app submits dynamic radio configuration (runs on Core 0 BLE task)
 void onMobileRadioConfigSubmitted(const uint8_t* payload, size_t len) {
   if (len < sizeof(RadioConfigPayload)) {
     Serial.println(F("[RADIO CFG ERR] Payload too short."));
     return;
   }
-  const RadioConfigPayload* cfg = reinterpret_cast<const RadioConfigPayload*>(payload);
-  float newFreq = (float)cfg->freqKhz / 1000.0f;
-  float newBw = (float)cfg->bwKhz;
-  uint8_t newSf = cfg->sf;
-  uint8_t newCr = cfg->cr;
-  int8_t newPower = cfg->txPower;
-
-  Serial.printf("[RADIO CFG] Reconfiguring LoRa: Freq: %.3f MHz, SF%u, BW %.1fkHz, CR 4/%u, Power: %d dBm\n",
-    newFreq, (unsigned int)newSf, newBw, (unsigned int)newCr, (int)newPower);
-
-  if (g_radioInitialized) {
-    int16_t state = radio.setFrequency(newFreq);
-    if (state != RADIOLIB_ERR_NONE) {
-      Serial.printf("[RADIO CFG ERR] setFrequency failed: %d\n", state);
-    }
-    state = radio.setSpreadingFactor(newSf);
-    if (state != RADIOLIB_ERR_NONE) {
-      Serial.printf("[RADIO CFG ERR] setSpreadingFactor failed: %d\n", state);
-    }
-    state = radio.setBandwidth(newBw);
-    if (state != RADIOLIB_ERR_NONE) {
-      Serial.printf("[RADIO CFG ERR] setBandwidth failed: %d\n", state);
-    }
-    state = radio.setCodingRate(newCr);
-    if (state != RADIOLIB_ERR_NONE) {
-      Serial.printf("[RADIO CFG ERR] setCodingRate failed: %d\n", state);
-    }
-    state = radio.setOutputPower(newPower);
-    if (state != RADIOLIB_ERR_NONE) {
-      Serial.printf("[RADIO CFG ERR] setOutputPower failed: %d\n", state);
-    }
-    radio.startReceive();
-    Serial.println(F("[RADIO CFG] SX1278 parameters updated and RX resumed."));
-  }
+  portENTER_CRITICAL(&g_txMux);
+  memcpy(&g_pendingRadioCfg, payload, sizeof(RadioConfigPayload));
+  g_hasPendingRadioCfg = true;
+  portEXIT_CRITICAL(&g_txMux);
 }
 
 void setup() {
@@ -381,6 +443,7 @@ void setup() {
 
 void loop() {
   ble.loop();
+  applyPendingRadioConfig();
 
   // Handle Radio Inbound Packets
   if (g_radioDio0Triggered) {
@@ -397,11 +460,14 @@ void loop() {
 
         if (expectedCrc == receivedCrc) {
           const OtaPacketHeader* hdr = reinterpret_cast<const OtaPacketHeader*>(rxBuffer);
+          size_t maxPayload = rxLen - sizeof(OtaPacketHeader) - 2;
 
-          if (hdr->magic == MESH_MAGIC_BYTE) {
-            // 1. Duplicate check (LRU ring buffer suppression)
-            if (g_router.isDuplicate(hdr->packetId)) {
-              Serial.printf("[ROUTER] Dropping duplicate packet 0x%08X\n", (unsigned int)hdr->packetId);
+          if (hdr->magic == MESH_MAGIC_BYTE && hdr->payloadLen <= maxPayload) {
+            // 1. Ignore our own echoed packets & check (srcNode, packetId) duplicate cache
+            if (hdr->srcNode == g_localNodeId ||
+                g_router.isDuplicate(hdr->srcNode, hdr->packetId)) {
+              Serial.printf("[ROUTER] Dropping duplicate/own packet 0x%08X from 0x%08X\n",
+                (unsigned int)hdr->packetId, (unsigned int)hdr->srcNode);
             } else {
               float rssi = radio.getRSSI();
               float snr  = radio.getSNR();
@@ -417,13 +483,8 @@ void loop() {
 
               if (isForMe) {
                 if (hdr->packetType == OTA_PKT_TEXT_MSG) {
-                  String text = "";
-                  for (size_t i = 0; i < hdr->payloadLen; ++i) {
-                    text += (char)rxBuffer[sizeof(OtaPacketHeader) + i];
-                  }
-
-                  Serial.printf("[LORA RX] Direct Msg from 0x%08X (Hops: %u): \"%s\" (RSSI: %.1f, SNR: %.1f)\n",
-                    (unsigned int)hdr->srcNode, calculatedHops, text.c_str(), rssi, snr);
+                  Serial.printf("[LORA RX] Direct Msg from 0x%08X (Hops: %u, Len: %u, RSSI: %.1f, SNR: %.1f)\n",
+                    (unsigned int)hdr->srcNode, calculatedHops, (unsigned int)hdr->payloadLen, rssi, snr);
 
                   // Auto-reply ACK if requested
                   if (hdr->flags & OTA_FLAG_REQ_ACK) {
@@ -442,12 +503,8 @@ void loop() {
 
               } else if (isBroadcast) {
                 if (hdr->packetType == OTA_PKT_TEXT_MSG) {
-                  String text = "";
-                  for (size_t i = 0; i < hdr->payloadLen; ++i) {
-                    text += (char)rxBuffer[sizeof(OtaPacketHeader) + i];
-                  }
-
-                  Serial.printf("[LORA RX BCAST] From 0x%08X: \"%s\"\n", (unsigned int)hdr->srcNode, text.c_str());
+                  Serial.printf("[LORA RX BCAST] From 0x%08X (Len: %u)\n",
+                    (unsigned int)hdr->srcNode, (unsigned int)hdr->payloadLen);
                   ble.sendRxMessage(hdr->srcNode, hdr->packetId, hdr->flags | OTA_FLAG_BROADCAST, rxBuffer + sizeof(OtaPacketHeader), hdr->payloadLen, rssi, snr);
                 } else if (hdr->packetType == OTA_PKT_NODE_ANNOUNCE) {
                   Serial.printf("[LORA RX ANNOUNCE] Node 0x%08X discovered (Hops: %u, RSSI: %.1f)\n",
@@ -458,8 +515,8 @@ void loop() {
                   ble.sendRxMessage(hdr->srcNode, hdr->packetId, hdr->flags | OTA_FLAG_SOS, rxBuffer + sizeof(OtaPacketHeader), hdr->payloadLen, rssi, snr);
                 }
 
-                // Autonomous Broadcast Flood Relay (if TTL > 1)
-                if (hdr->ttl > 1) {
+                // Autonomous Broadcast Flood Relay (bounded by TTL & HopCount)
+                if (hdr->ttl > 1 && hdr->hopCount < 5) {
                   relayPacket(rxBuffer, rxLen);
                 }
 
@@ -467,10 +524,10 @@ void loop() {
                 // Unicast packet addressed to another node in the mesh -> Relay it!
                 Serial.printf("[ROUTER] Packet 0x%08X addressed to 0x%08X (not us). Relaying...\n",
                   (unsigned int)hdr->packetId, (unsigned int)hdr->destNode);
-                if (hdr->ttl > 1) {
+                if (hdr->ttl > 1 && hdr->hopCount < 5) {
                   relayPacket(rxBuffer, rxLen);
                 } else {
-                  Serial.println(F("[ROUTER] TTL exhausted for unicast packet. Dropping."));
+                  Serial.println(F("[ROUTER] TTL/Hop exhausted for unicast packet. Dropping."));
                 }
               }
             }
@@ -482,6 +539,15 @@ void loop() {
     }
 
     radio.startReceive();
+  }
+
+  // Drain 1 queued outbound TX item per loop iteration (safe Core 1 SPI ownership)
+  OutboundTxItem txItem;
+  if (dequeueOtaTx(&txItem)) {
+    bool ok = transmitOtaBuffer(txItem.data, txItem.len);
+    if (txItem.notifyStatus) {
+      ble.sendTxStatusForPacket(0, ok ? TX_STATUS_TRANSMITTED : TX_STATUS_FAILED, txItem.packetId);
+    }
   }
 
   // Periodic Telemetry update to BLE (every 4 seconds)

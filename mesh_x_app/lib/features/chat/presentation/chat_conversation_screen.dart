@@ -57,12 +57,31 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
     final localNodeId = bleState.deviceInfo?.nodeId ?? 0;
     final chatRepo = ref.read(chatRepositoryProvider);
 
-    await chatRepo.sendMessage(
+    final msg = await chatRepo.sendMessage(
       conversationId: widget.conversation.id,
       recipientNodeId: widget.conversation.peerNodeId,
       textContent: text,
       localNodeId: localNodeId,
     );
+
+    if (mounted) {
+      if (msg.deliveryStatus == MessageDeliveryStatus.failed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Transmission failed. Tap Retry on message bubble.'),
+            backgroundColor: AppColors.error,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } else if (!bleState.isConnected) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Node offline — queued to auto-send on reconnect.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
 
     _scrollToBottom();
   }
@@ -794,11 +813,12 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
               Expanded(
                 child: TextField(
                   controller: _textController,
-                  maxLength: _maxChars,
+                  inputFormatters: [
+                    _Utf8ByteLimitingFormatter(_maxChars),
+                  ],
                   minLines: 1,
                   maxLines: 4,
                   textCapitalization: TextCapitalization.sentences,
-                  buildCounter: (_, {required currentLength, required isFocused, maxLength}) => null,
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 14.5,
@@ -899,6 +919,23 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
     final hour = dt.hour.toString().padLeft(2, '0');
     final min = dt.minute.toString().padLeft(2, '0');
     return '$hour:$min';
+  }
+}
+
+class _Utf8ByteLimitingFormatter extends TextInputFormatter {
+  final int maxBytes;
+
+  _Utf8ByteLimitingFormatter(this.maxBytes);
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (utf8.encode(newValue.text).length <= maxBytes) {
+      return newValue;
+    }
+    return oldValue;
   }
 }
 

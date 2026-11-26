@@ -547,5 +547,43 @@ void main() {
       final decodedBytes = base64Decode(finalReassembled!);
       expect(decodedBytes, equals(dummyBytes));
     });
+
+    test('BLE MTU fragmentation splits large payloads cleanly under ATT MTU 23', () {
+      const negotiatedMtu = 23; // Minimum legacy BLE MTU
+      final maxFragData = (negotiatedMtu - 3 - 12).clamp(8, 240);
+      expect(maxFragData, equals(8));
+
+      final payload = Uint8List.fromList(List.generate(30, (i) => i + 1));
+      final fragCount = (payload.length / maxFragData).ceil();
+      expect(fragCount, equals(4));
+
+      final reassembled = <int>[];
+      for (int idx = 0; idx < fragCount; idx++) {
+        final start = idx * maxFragData;
+        final end = (start + maxFragData > payload.length)
+            ? payload.length
+            : start + maxFragData;
+        final slice = payload.sublist(start, end);
+        final frame = Uint8List(10 + slice.length + 2);
+        final bd = ByteData.sublistView(frame);
+        bd.setUint8(0, BleConstants.magicByte0);
+        bd.setUint8(1, BleConstants.magicByte1);
+        bd.setUint8(2, BleConstants.protocolVersion);
+        bd.setUint8(3, BleConstants.cmdSubmitMessage);
+        bd.setUint16(4, 1, Endian.little);
+        bd.setUint16(6, payload.length, Endian.little);
+        bd.setUint8(8, idx);
+        bd.setUint8(9, fragCount);
+        frame.setRange(10, 10 + slice.length, slice);
+        final crc = Crc16.compute(frame, 10 + slice.length);
+        bd.setUint16(10 + slice.length, crc, Endian.little);
+
+        expect(frame.length, lessThanOrEqualTo(negotiatedMtu - 3));
+        expect(Crc16.compute(frame, frame.length - 2), equals(crc));
+        reassembled.addAll(frame.sublist(10, frame.length - 2));
+      }
+
+      expect(Uint8List.fromList(reassembled), equals(payload));
+    });
   });
 }
